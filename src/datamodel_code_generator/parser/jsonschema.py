@@ -1108,6 +1108,11 @@ class JsonSchemaParser(Parser):
             )
         if self.use_title_as_name and obj.title:
             name = obj.title
+
+        discriminator_mapping = self._get_discriminator_mapping(obj)
+        if discriminator_mapping:
+            return self._parse_object_with_discriminator(name, obj, path, singular_name, discriminator_mapping)
+
         reference = self.model_resolver.add(
             path,
             name,
@@ -1163,6 +1168,111 @@ class JsonSchemaParser(Parser):
         )
         self.results.append(data_model_type)
         return self.data_type(reference=reference)
+
+    def _get_discriminator_mapping(self, obj: JsonSchemaObject) -> dict[str, str] | None:
+        """Get discriminator mapping from an object schema if it has one."""
+        if not obj.discriminator:
+            return None
+        if isinstance(obj.discriminator, str):
+            return None
+        if not obj.discriminator.mapping:
+            return None
+        return obj.discriminator.mapping
+
+    def _parse_object_with_discriminator(
+        self,
+        name: str,
+        obj: JsonSchemaObject,
+        path: list[str],
+        singular_name: bool,  # noqa: FBT001
+        discriminator_mapping: dict[str, str],
+    ) -> DataType:
+        """Parse object schema with discriminator mapping into a Union type.
+
+        When an object has a discriminator with mapping (but no oneOf/anyOf),
+        it defines a polymorphic type. This method creates:
+        1. A base model for inheritance by the mapped types (with original path)
+        2. A root model that wraps a Union of the mapped refs with discriminator
+        """
+        base_reference = self.model_resolver.add(
+            path,
+            name,
+            class_name=True,
+            singular_name=singular_name,
+            loaded=True,
+        )
+        base_class_name = base_reference.name
+        self.set_title(base_reference.path, obj)
+        fields = self.parse_object_fields(
+            obj, path, get_module_name(base_class_name, None, treat_dot_as_module=self.treat_dot_as_module)
+        )
+
+        base_model = self._create_data_model(
+            model_type=self.data_model_type,
+            reference=base_reference,
+            fields=fields,
+            custom_base_class=obj.custom_base_path or self.base_class,
+            custom_template_dir=self.custom_template_dir,
+            extra_template_data=self.extra_template_data,
+            path=self.current_source_path,
+            description=obj.description if self.use_schema_description else None,
+            nullable=obj.type_has_null,
+            keyword_only=self.keyword_only,
+            treat_dot_as_module=self.treat_dot_as_module,
+            dataclass_arguments=self.dataclass_arguments,
+        )
+        self.results.append(base_model)
+
+        union_path = get_special_path("discriminator", path)
+        union_reference = self.model_resolver.add(
+            union_path,
+            name,
+            class_name=True,
+            singular_name=singular_name,
+            loaded=True,
+        )
+
+        data_types: list[DataType] = []
+        for ref_path in discriminator_mapping.values():
+            data_types.append(self.get_ref_data_type(ref_path))
+
+        if len(data_types) > 1:
+            data_type = self.data_type(data_types=data_types)
+        elif data_types:
+            data_type = data_types[0]
+        else:
+            data_type = self.data_type_manager.get_data_type(Types.any)
+
+        discriminator_dict: dict[str, Any] = {}
+        if isinstance(obj.discriminator, Discriminator):
+            discriminator_dict["propertyName"] = obj.discriminator.propertyName
+            if obj.discriminator.mapping:
+                discriminator_dict["mapping"] = obj.discriminator.mapping
+
+        field = self.data_model_field_type(
+            data_type=data_type,
+            required=True,
+            extras={"discriminator": discriminator_dict} if discriminator_dict else {},
+            strip_default_none=self.strip_default_none,
+            use_annotated=self.use_annotated,
+            use_field_description=self.use_field_description,
+            use_inline_field_description=self.use_inline_field_description,
+            original_name=None,
+        )
+
+        data_model_root = self.data_model_root_type(
+            reference=union_reference,
+            fields=[field],
+            custom_base_class=obj.custom_base_path or self.base_class,
+            custom_template_dir=self.custom_template_dir,
+            extra_template_data=self.extra_template_data,
+            path=self.current_source_path,
+            description=obj.description if self.use_schema_description else None,
+            nullable=obj.type_has_null,
+            treat_dot_as_module=self.treat_dot_as_module,
+        )
+        self.results.append(data_model_root)
+        return self.data_type(reference=base_reference)
 
     def parse_pattern_properties(
         self,
