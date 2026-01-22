@@ -402,9 +402,9 @@ class OpenAPIParser(JsonSchemaParser):
                 subtype_data_types = []
                 for subtype_ref in subtypes:
                     subtype_reference = self.lookup_or_create_ref(subtype_ref)
-                    subtype_data_types.append(DataType(reference=subtype_reference))
+                    subtype_data_types.append(DataType(reference=subtype_reference, use_union_operator=self.use_union_operator))
                 if subtype_data_types:
-                    return DataType(data_types=subtype_data_types)
+                    return DataType(data_types=subtype_data_types, use_union_operator=self.use_union_operator)
         return JsonSchemaParser.get_ref_data_type(self, ref)
 
     def parse_object_fields(self, obj: JsonSchemaObject, path: list[str], module_name: Optional[str] = None):  # noqa: UP045
@@ -421,11 +421,11 @@ class OpenAPIParser(JsonSchemaParser):
                     subtype_data_types = []
                     for subtype_ref in subtypes:
                         subtype_reference = self.lookup_or_create_ref(subtype_ref)
-                        subtype_data_types.append(DataType(reference=subtype_reference))
+                        subtype_data_types.append(DataType(reference=subtype_reference, use_union_operator=self.use_union_operator))
                     if subtype_data_types:
                         new_field = type(field_obj)(
                             name=field_obj.name,
-                            data_type=DataType(data_types=subtype_data_types),
+                            data_type=DataType(data_types=subtype_data_types, use_union_operator=self.use_union_operator),
                             default=field_obj.default,
                             required=field_obj.required,
                             alias=field_obj.alias,
