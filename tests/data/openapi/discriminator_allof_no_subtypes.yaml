@@ -1,0 +1,35 @@
+openapi: 3.1.0
+info:
+  title: x
+  version: x
+components:
+  schemas:
+    ItemContainer:
+      type: object
+      required:
+        - item
+      properties:
+        item:
+          $ref: "#/components/schemas/BaseItem"
+    BaseItem:
+      type: object
+      required:
+        - itemType
+      properties:
+        itemType:
+          type: string
+      discriminator:
+        propertyName: itemType
+        mapping:
+          foo: "#/components/schemas/FooItem"
+          bar: "#/components/schemas/BarItem"
+    FooItem:
+      type: object
+      properties:
+        fooValue:
+          type: string
+    BarItem:
+      type: object
+      properties:
+        barValue:
+          type: integer
