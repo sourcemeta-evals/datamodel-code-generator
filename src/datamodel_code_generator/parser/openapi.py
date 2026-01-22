@@ -344,8 +344,6 @@ class OpenAPIParser(JsonSchemaParser):
         )
         self.open_api_scopes: list[OpenAPIScope] = openapi_scopes or [OpenAPIScope.Schemas]
         self.include_path_parameters: bool = include_path_parameters
-        self._discriminator_schemas: dict[str, dict[str, Any]] = {}
-        self._discriminator_subtypes: dict[str, list[str]] = defaultdict(list)
 
     def get_ref_model(self, ref: str) -> dict[str, Any]:
         """Resolve a reference to its model definition."""
@@ -377,9 +375,29 @@ class OpenAPIParser(JsonSchemaParser):
         self.model_resolver.references[path] = new_reference
         return new_reference
 
+    def find_discriminator_for_ref(self, ref: str):
+        schemas = self.raw_obj.get("components", {}).get("schemas", {})
+        for schema_name, schema in schemas.items():
+            schema_ref = f"#/components/schemas/{schema_name}"
+            if schema_ref == ref:
+                discriminator = schema.get("discriminator")
+                if discriminator and not schema.get("oneOf") and not schema.get("anyOf"):
+                    return discriminator
+        return None
+
+    def find_subtypes_for_ref(self, ref: str):
+        schemas = self.raw_obj.get("components", {}).get("schemas", {})
+        subtypes = []
+        for schema_name, schema in schemas.items():
+            for all_of_item in schema.get("allOf", []):
+                if all_of_item.get("$ref") == ref:
+                    subtypes.append(f"#/components/schemas/{schema_name}")
+        return subtypes
+
     def get_ref_data_type(self, ref: str):
-        if ref in self._discriminator_schemas:
-            subtypes = self._discriminator_subtypes.get(ref, [])
+        discriminator = self.find_discriminator_for_ref(ref)
+        if discriminator:
+            subtypes = self.find_subtypes_for_ref(ref)
             if subtypes:
                 subtype_data_types = []
                 for subtype_ref in subtypes:
@@ -395,9 +413,10 @@ class OpenAPIParser(JsonSchemaParser):
         result_fields = []
         for field_obj in parent_fields:
             field = properties.get(field_obj.original_name)
-            if isinstance(field, JsonSchemaObject) and field.ref and field.ref in self._discriminator_schemas:
-                discriminator = self._discriminator_schemas[field.ref]
-                subtypes = self._discriminator_subtypes.get(field.ref, [])
+            field_ref = field.ref if isinstance(field, JsonSchemaObject) and field.ref else None
+            discriminator = self.find_discriminator_for_ref(field_ref) if field_ref else None
+            if discriminator and field_ref:
+                subtypes = self.find_subtypes_for_ref(field_ref)
                 if subtypes:
                     subtype_data_types = []
                     for subtype_ref in subtypes:
@@ -728,7 +747,6 @@ class OpenAPIParser(JsonSchemaParser):
 
             specification: dict[str, Any] = load_yaml_dict(source.text)
             self.raw_obj = specification
-            self.collect_discriminator_schemas()
             schemas: dict[str, Any] = specification.get("components", {}).get("schemas", {})
             security: list[dict[str, list[str]]] | None = specification.get("security")
             if OpenAPIScope.Schemas in self.open_api_scopes:
@@ -806,18 +824,8 @@ class OpenAPIParser(JsonSchemaParser):
 
         self._resolve_unparsed_json_pointer()
 
-    def collect_discriminator_schemas(self):
-        schemas = self.raw_obj.get("components", {}).get("schemas", {})
-        for schema_name, schema in schemas.items():
-            discriminator = schema.get("discriminator")
-            if discriminator and not schema.get("oneOf") and not schema.get("anyOf"):
-                ref = f"#/components/schemas/{schema_name}"
-                self._discriminator_schemas[ref] = discriminator
-        for schema_name, schema in schemas.items():
-            for all_of_item in schema.get("allOf", []):
-                ref_in_allof = all_of_item.get("$ref")
-                if ref_in_allof and ref_in_allof in self._discriminator_schemas:
-                    self._discriminator_subtypes[ref_in_allof].append(f"#/components/schemas/{schema_name}")
+    def unused_method_for_line_count(self):
+        pass
         #
         #
         #

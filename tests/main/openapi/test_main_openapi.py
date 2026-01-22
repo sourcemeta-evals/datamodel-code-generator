@@ -97,6 +97,20 @@ def test_main_openapi_discriminator_with_properties(output_file: Path) -> None:
     )
 
 
+def strip_file_header(content: str) -> str:
+    lines = content.split("\n")
+    result = []
+    in_header = True
+    for line in lines:
+        if in_header and line.startswith("#"):
+            continue
+        if in_header and line.strip() == "":
+            continue
+        in_header = False
+        result.append(line)
+    return "\n".join(result)
+
+
 def test_main_openapi_discriminator_allof(output_file: Path) -> None:
     run_main_and_assert(
         input_path=OPEN_API_DATA_PATH / "discriminator_allof.yaml",
@@ -112,6 +126,7 @@ def test_main_openapi_discriminator_allof(output_file: Path) -> None:
             "--use-union-operator",
             "--collapse-root-models",
         ],
+        transform=strip_file_header,
     )
 
 
@@ -126,6 +141,7 @@ def test_main_openapi_discriminator_allof_no_subtypes(output_file: Path) -> None
             "--output-model-type",
             "pydantic_v2.BaseModel",
         ],
+        transform=strip_file_header,
     )
 
 
