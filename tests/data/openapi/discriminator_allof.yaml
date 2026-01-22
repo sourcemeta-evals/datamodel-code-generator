@@ -4,45 +4,44 @@ info:
   version: x
 components:
   schemas:
-    PetContainer:
+    Container1:
       type: object
       required:
-        - pet
+        - field1
       properties:
-        pet:
-          $ref: "#/components/schemas/Pet"
-    Pet:
+        field1:
+          $ref: "#/components/schemas/Base1"
+    Base1:
       type: object
       required:
-        - petType
+        - type1
       properties:
-        petType:
+        type1:
           type: string
       discriminator:
-        propertyName: petType
+        propertyName: type1
         mapping:
-          cat: "#/components/schemas/Cat"
-          dog: "#/components/schemas/Dog"
-          lizard: "#/components/schemas/Lizard"
-    Cat:
+          a: "#/components/schemas/TypeA"
+          b: "#/components/schemas/TypeB"
+          c: "#/components/schemas/TypeC"
+    TypeA:
       allOf:
-        - $ref: "#/components/schemas/Pet"
+        - $ref: "#/components/schemas/Base1"
         - type: object
           properties:
-            name:
+            prop1:
               type: string
-    Dog:
+    TypeB:
       allOf:
-        - $ref: "#/components/schemas/Pet"
+        - $ref: "#/components/schemas/Base1"
         - type: object
           properties:
-            bark:
+            prop2:
               type: string
-    Lizard:
+    TypeC:
       allOf:
-        - $ref: "#/components/schemas/Pet"
+        - $ref: "#/components/schemas/Base1"
         - type: object
           properties:
-            lovesRocks:
+            prop3:
               type: boolean
-

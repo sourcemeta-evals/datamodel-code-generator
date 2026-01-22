@@ -4,32 +4,32 @@ info:
   version: x
 components:
   schemas:
-    ItemContainer:
+    Container2:
       type: object
       required:
-        - item
+        - field2
       properties:
-        item:
-          $ref: "#/components/schemas/BaseItem"
-    BaseItem:
+        field2:
+          $ref: "#/components/schemas/Base2"
+    Base2:
       type: object
       required:
-        - itemType
+        - type2
       properties:
-        itemType:
+        type2:
           type: string
       discriminator:
-        propertyName: itemType
+        propertyName: type2
         mapping:
-          foo: "#/components/schemas/FooItem"
-          bar: "#/components/schemas/BarItem"
-    FooItem:
+          x: "#/components/schemas/TypeX"
+          y: "#/components/schemas/TypeY"
+    TypeX:
       type: object
       properties:
-        fooValue:
+        propX:
           type: string
-    BarItem:
+    TypeY:
       type: object
       properties:
-        barValue:
+        propY:
           type: integer
