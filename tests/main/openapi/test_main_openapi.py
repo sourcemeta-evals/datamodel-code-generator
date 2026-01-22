@@ -97,6 +97,29 @@ def test_main_openapi_discriminator_with_properties(output_file: Path) -> None:
     )
 
 
+def test_main_openapi_discriminator_allof(output_file: Path) -> None:
+    """Test OpenAPI generation with discriminator and allOf inheritance.
+
+    This tests the fix for issue #2528 where discriminator with allOf
+    was not applying the Literal type to child schemas.
+    """
+    run_main_and_assert(
+        input_path=OPEN_API_DATA_PATH / "discriminator_allof.yaml",
+        output_path=output_file,
+        input_file_type="openapi",
+        assert_func=assert_file_content,
+        expected_file=EXPECTED_OPENAPI_PATH / "discriminator" / "allof.py",
+        extra_args=[
+            "--output-model-type",
+            "pydantic_v2.BaseModel",
+            "--target-python-version",
+            "3.10",
+            "--snake-case-field",
+            "--use-annotated",
+        ],
+    )
+
+
 def test_main_pydantic_basemodel(output_file: Path) -> None:
     """Test OpenAPI generation with Pydantic BaseModel output."""
     run_main_and_assert(

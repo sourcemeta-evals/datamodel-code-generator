@@ -951,6 +951,84 @@ class Parser(ABC):
                     if has_imported_literal:  # pragma: no cover
                         imports.append(IMPORT_LITERAL)
 
+    def __apply_allof_discriminator(
+        self,
+        models: list[DataModel],
+        imports: Imports,
+    ) -> None:
+        """Apply discriminator to models that use allOf to extend a parent with discriminator.
+
+        When a parent schema has a discriminator with a mapping, and child schemas use
+        allOf to extend the parent, this method adds the Literal type for the discriminator
+        field to each child schema.
+        """
+        # Check if the parser has allof_discriminator_mappings (only JsonSchemaParser and subclasses)
+        allof_discriminator_mappings: dict[str, tuple[str, str]] = getattr(
+            self, "allof_discriminator_mappings", {}
+        )
+        if not allof_discriminator_mappings:
+            return
+
+        # Get the allof_parent_refs to check if a model uses allOf
+        allof_parent_refs: dict[str, set[str]] = getattr(self, "allof_parent_refs", {})
+
+        for model in models:
+            # Check if this model's path matches any discriminator mapping
+            model_path = model.path
+            # Try different path formats to match
+            # model.path might be like 'openapi_discriminator_allof.yaml#/components/schemas/Cat'
+            # or just 'components/schemas/Cat'
+            path_suffix = model_path.split("#/")[-1] if "#/" in model_path else model_path
+
+            discriminator_info = allof_discriminator_mappings.get(path_suffix)
+            if not discriminator_info:
+                continue
+
+            # Only apply discriminator if this model uses allOf to extend a parent
+            # This prevents applying discriminator to schemas that are just referenced in oneOf/anyOf
+            parent_refs = allof_parent_refs.get(path_suffix)
+            if not parent_refs:
+                continue
+
+            property_name, discriminator_value = discriminator_info
+            field_name, alias = self.model_resolver.get_valid_field_name_and_alias(
+                field_name=property_name
+            )
+
+            # Check if the model already has the discriminator field directly (not inherited)
+            existing_field = None
+            for field in model.fields:
+                if property_name in {field.original_name, field.name}:
+                    existing_field = field
+                    break
+
+            if existing_field is not None:
+                # Update the existing field's data type to Literal
+                literals = existing_field.data_type.literals
+                if len(literals) == 1 and literals[0] == discriminator_value:
+                    # Already has the correct literal type
+                    continue
+                # Update the data type to Literal
+                for field_data_type in existing_field.data_type.all_data_types:
+                    if field_data_type.reference:
+                        field_data_type.remove_reference()
+                existing_field.data_type = self.data_type(literals=[discriminator_value])
+                existing_field.data_type.parent = existing_field
+                existing_field.required = True
+                imports.append(existing_field.imports)
+            else:
+                # Add a new field with Literal type to override the parent's field
+                model.fields.append(
+                    self.data_model_field_type(
+                        name=field_name,
+                        data_type=self.data_type(literals=[discriminator_value]),
+                        required=True,
+                        alias=alias,
+                    )
+                )
+
+            imports.append(IMPORT_LITERAL)
+
     @classmethod
     def _create_set_from_list(cls, data_type: DataType) -> DataType | None:
         if data_type.is_list:
@@ -1504,6 +1582,7 @@ class Parser(ABC):
             self.__sort_models(models, imports)
             self.__change_field_name(models)
             self.__apply_discriminator_type(models, imports)
+            self.__apply_allof_discriminator(models, imports)
             self.__set_one_literal_on_default(models)
 
             processed_models.append(Processed(module, models, init, imports, scoped_model_resolver))

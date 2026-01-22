@@ -619,6 +619,12 @@ class JsonSchemaParser(Parser):
         self._root_id: Optional[str] = None  # noqa: UP045
         self._root_id_base_path: Optional[str] = None  # noqa: UP045
         self.reserved_refs: defaultdict[tuple[str, ...], set[str]] = defaultdict(set)
+        # Store discriminator mappings for allOf inheritance pattern
+        # Key: normalized path of child schema, Value: (property_name, discriminator_value)
+        self.allof_discriminator_mappings: dict[str, tuple[str, str]] = {}
+        # Track schemas that use allOf to extend another schema
+        # Key: normalized path of child schema, Value: set of normalized paths of parent schemas
+        self.allof_parent_refs: dict[str, set[str]] = {}
         self.field_keys: set[str] = {
             *DEFAULT_FIELD_KEYS,
             *self.field_extra_keys,
@@ -976,6 +982,18 @@ class JsonSchemaParser(Parser):
                 and get_model_by_path(self.raw_obj, single_obj.ref[2:].split("/")).get("enum")
             ):
                 return self.get_ref_data_type(single_obj.ref)
+
+        # Track allOf parent refs for discriminator inheritance
+        path_suffix = "/".join(path).split("#/")[-1] if "#/" in "/".join(path) else "/".join(path)
+        parent_refs: set[str] = set()
+        for all_of_item in obj.allOf:
+            if all_of_item.ref:
+                # Normalize the ref path
+                normalized_ref = all_of_item.ref.lstrip("#/")
+                parent_refs.add(normalized_ref)
+        if parent_refs:
+            self.allof_parent_refs[path_suffix] = parent_refs
+
         fields: list[DataModelFieldBase] = []
         base_classes: list[Reference] = []
         required: list[str] = []
@@ -1754,6 +1772,9 @@ class JsonSchemaParser(Parser):
         path: list[str],
     ) -> None:
         """Parse a JsonSchemaObject by dispatching to appropriate parse methods."""
+        # Capture discriminator mappings for allOf inheritance pattern
+        self._capture_discriminator_mapping(obj, path)
+
         if obj.is_array:
             self.parse_array(name, obj, path)
         elif obj.allOf:
@@ -1773,6 +1794,32 @@ class JsonSchemaParser(Parser):
         else:
             self.parse_root_type(name, obj, path)
         self.parse_ref(obj, path)
+
+    def _capture_discriminator_mapping(self, obj: JsonSchemaObject, path: list[str]) -> None:
+        """Capture discriminator mappings for allOf inheritance pattern.
+
+        When a schema has a discriminator with a mapping, store the mapping so that
+        child schemas using allOf can have the discriminator field set to a Literal type.
+        """
+        if not obj.discriminator:
+            return
+
+        discriminator = obj.discriminator
+        if isinstance(discriminator, str):
+            # Simple discriminator without mapping
+            return
+
+        property_name = discriminator.propertyName
+        mapping = discriminator.mapping
+        if not mapping:
+            return
+
+        # Store the mapping for each child schema
+        for discriminator_value, ref_path in mapping.items():
+            # Normalize the ref path to match how paths are stored
+            # ref_path is like '#/components/schemas/Cat'
+            normalized_path = ref_path.lstrip("#/").replace("/", "/")
+            self.allof_discriminator_mappings[normalized_path] = (property_name, discriminator_value)
 
     def _get_context_source_path_parts(self) -> Iterator[tuple[Source, list[str]]]:
         """Get source and path parts for each input file with context managers."""
