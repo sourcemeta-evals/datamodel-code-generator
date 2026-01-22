@@ -576,6 +576,10 @@ class Parser(ABC):
         self.default_field_extras: dict[str, Any] | None = default_field_extras
         self.formatters: list[Formatter] = formatters
         self.type_mappings: dict[tuple[str, str], str] = Parser._parse_type_mappings(type_mappings)
+        # Store discriminator mappings from parent schemas for allOf inheritance
+        # Key: schema path (e.g., "#/components/schemas/Pet")
+        # Value: tuple of (propertyName, mapping dict)
+        self.discriminator_mappings: dict[str, tuple[str, dict[str, str]]] = {}
 
     @staticmethod
     def _parse_type_mappings(type_mappings: list[str] | None) -> dict[tuple[str, str], str]:
@@ -950,6 +954,94 @@ class Parser(ABC):
                     has_imported_literal = any(import_ == IMPORT_LITERAL for import_ in imports)
                     if has_imported_literal:  # pragma: no cover
                         imports.append(IMPORT_LITERAL)
+
+    def __apply_discriminator_type_for_allof(  # noqa: PLR0912
+        self,
+        models: list[DataModel],
+        imports: Imports,
+    ) -> None:
+        """Apply discriminator literals to models that inherit from a parent with discriminator via allOf."""
+        if not self.discriminator_mappings:
+            return
+
+        def normalize_path(path: str) -> str:
+            """Normalize path by removing leading slash before # if present."""
+            return path.replace("/#/", "#/")
+
+        # Build a normalized mapping from discriminator paths
+        normalized_discriminator_mappings: dict[str, tuple[str, dict[str, str]]] = {
+            normalize_path(path): (prop_name, mapping)
+            for path, (prop_name, mapping) in self.discriminator_mappings.items()
+        }
+
+        # For each model, check if it inherits from a parent with a discriminator
+        for model in models:
+            if not isinstance(
+                model,
+                (
+                    pydantic_model.BaseModel,
+                    pydantic_model_v2.BaseModel,
+                    dataclass_model.DataClass,
+                    msgspec_model.Struct,
+                ),
+            ):
+                continue
+
+            for base_class in model.base_classes:
+                if not base_class.reference:
+                    continue
+
+                # Check if the base class has a discriminator mapping
+                base_path = normalize_path(base_class.reference.path)
+                if base_path not in normalized_discriminator_mappings:
+                    continue
+
+                property_name, mapping = normalized_discriminator_mappings[base_path]
+                field_name, alias = self.model_resolver.get_valid_field_name_and_alias(field_name=property_name)
+
+                # Find the discriminator value for this model from the mapping
+                type_name: str | None = None
+                model_path = model.reference.path if model.reference else ""
+                # Extract the schema name from the model path (e.g., "Cat" from "file.yaml#/components/schemas/Cat")
+                model_schema_suffix = model_path.split("#/")[-1] if "#/" in model_path else model_path
+                for disc_value, mapped_path in mapping.items():
+                    # Extract the schema name from the mapped path (e.g., "Cat" from "#/components/schemas/Cat")
+                    mapped_schema_suffix = mapped_path.split("#/")[-1] if "#/" in mapped_path else mapped_path
+                    if model_schema_suffix == mapped_schema_suffix:
+                        type_name = disc_value
+                        break
+
+                if not type_name:
+                    continue
+
+                # Find or create the discriminator field in this model
+                has_discriminator_field = False
+                for model_field in model.fields:
+                    if field_name not in {model_field.original_name, model_field.name}:
+                        continue
+                    # Update the field to have a Literal type
+                    for field_data_type in model_field.data_type.all_data_types:
+                        if field_data_type.reference:
+                            field_data_type.remove_reference()
+                    model_field.data_type = self.data_type(literals=[type_name])
+                    model_field.data_type.parent = model_field
+                    model_field.required = True
+                    imports.append(model_field.imports)
+                    has_discriminator_field = True
+                    break
+
+                if not has_discriminator_field:
+                    # Add the discriminator field to the model
+                    model.fields.insert(
+                        0,
+                        self.data_model_field_type(
+                            name=field_name,
+                            data_type=self.data_type(literals=[type_name]),
+                            required=True,
+                            alias=alias if alias != field_name else None,
+                        ),
+                    )
+                    imports.append(IMPORT_LITERAL)
 
     @classmethod
     def _create_set_from_list(cls, data_type: DataType) -> DataType | None:
@@ -1504,6 +1596,7 @@ class Parser(ABC):
             self.__sort_models(models, imports)
             self.__change_field_name(models)
             self.__apply_discriminator_type(models, imports)
+            self.__apply_discriminator_type_for_allof(models, imports)
             self.__set_one_literal_on_default(models)
 
             processed_models.append(Processed(module, models, init, imports, scoped_model_resolver))

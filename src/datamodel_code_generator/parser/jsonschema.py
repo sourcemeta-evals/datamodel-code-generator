@@ -1754,6 +1754,13 @@ class JsonSchemaParser(Parser):
         path: list[str],
     ) -> None:
         """Parse a JsonSchemaObject by dispatching to appropriate parse methods."""
+        # Store discriminator info for allOf inheritance
+        if obj.discriminator and isinstance(obj.discriminator, Discriminator) and obj.discriminator.mapping:
+            schema_path = "/".join(path)
+            self.discriminator_mappings[schema_path] = (
+                obj.discriminator.propertyName,
+                obj.discriminator.mapping,
+            )
         if obj.is_array:
             self.parse_array(name, obj, path)
         elif obj.allOf:
