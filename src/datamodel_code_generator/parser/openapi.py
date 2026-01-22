@@ -364,14 +364,14 @@ class OpenAPIParser(JsonSchemaParser):
 
         return super().get_data_type(obj)
 
-    def get_discriminator_union_type(self, ref: str) -> DataType | None:
+    def get_discriminator_union_type(self, ref: str):
         subtypes = self._discriminator_subtypes.get(ref, [])
         if not subtypes:
             return None
         refs = map(self.model_resolver.add_ref, subtypes)
         return self.data_type(data_types=[self.data_type(reference=r) for r in refs])
 
-    def get_ref_data_type(self, ref: str) -> DataType:
+    def get_ref_data_type(self, ref: str):
         if ref in self._discriminator_schemas and (union_type := self.get_discriminator_union_type(ref)):
             return union_type
         return super().get_ref_data_type(ref)
@@ -381,7 +381,7 @@ class OpenAPIParser(JsonSchemaParser):
         obj: JsonSchemaObject,
         path: list[str],
         module_name: Optional[str] = None,  # noqa: UP045
-    ) -> list[DataModelFieldBase]:
+    ):
         fields = super().parse_object_fields(obj, path, module_name)
         properties = obj.properties or {}
 
@@ -771,7 +771,7 @@ class OpenAPIParser(JsonSchemaParser):
 
         self._resolve_unparsed_json_pointer()
 
-    def collect_discriminator_schemas(self) -> None:
+    def collect_discriminator_schemas(self):
         schemas: dict[str, Any] = self.raw_obj.get("components", {}).get("schemas", {})
 
         for schema_name, schema in schemas.items():
