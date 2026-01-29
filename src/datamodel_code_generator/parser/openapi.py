@@ -344,6 +344,9 @@ class OpenAPIParser(JsonSchemaParser):
         )
         self.open_api_scopes: list[OpenAPIScope] = openapi_scopes or [OpenAPIScope.Schemas]
         self.include_path_parameters: bool = include_path_parameters
+        self._discriminator_mappings: dict[str, tuple[str, dict[str, str]]] = {}
+        self._base_schema_discriminators: dict[str, tuple[str, list[str], dict[str, str]]] = {}
+        self._pending_discriminator_for_field: dict[str, Any] | None = None
 
     def get_ref_model(self, ref: str) -> dict[str, Any]:
         """Resolve a reference to its model definition."""
@@ -622,6 +625,151 @@ class OpenAPIParser(JsonSchemaParser):
                 path=[*path, "tags"],
             )
 
+    def _collect_discriminator_mappings(
+        self, schemas: dict[str, Any], path_parts: list[str]
+    ) -> None:
+        """Collect discriminator mappings from schemas for allOf inheritance pattern.
+
+        When a schema has a discriminator with mapping but no oneOf/anyOf, it indicates
+        an inheritance pattern where child schemas use allOf to extend the base schema.
+        This method collects these mappings so they can be used when parsing child schemas.
+        """
+        for schema_name, schema in schemas.items():
+            if not isinstance(schema, dict):
+                continue
+            discriminator = schema.get("discriminator")
+            if not discriminator or not isinstance(discriminator, dict):
+                continue
+            mapping = discriminator.get("mapping")
+            property_name = discriminator.get("propertyName")
+            if not mapping or not property_name:
+                continue
+            if schema.get("oneOf") or schema.get("anyOf"):
+                continue
+            base_ref = f"#/components/schemas/{schema_name}"
+            target_refs = list(mapping.values())
+            self._base_schema_discriminators[base_ref] = (property_name, target_refs, mapping)
+            for discriminator_value, target_ref in mapping.items():
+                self._discriminator_mappings[target_ref] = (property_name, {discriminator_value: base_ref})
+
+    def _get_discriminator_literal_for_schema(self, schema_ref: str) -> tuple[str, str] | None:
+        """Get the discriminator property name and literal value for a schema reference.
+
+        Returns a tuple of (property_name, literal_value) if the schema is a target
+        in a discriminator mapping, otherwise None.
+        """
+        if schema_ref in self._discriminator_mappings:
+            property_name, mapping = self._discriminator_mappings[schema_ref]
+            for literal_value in mapping:
+                return (property_name, literal_value)
+        return None
+
+    def _get_schema_ref_from_path(self, path: list[str]) -> str | None:
+        """Convert a path to a schema reference string.
+
+        For example, ['...', '#/components', 'schemas', 'Cat'] -> '#/components/schemas/Cat'
+        """
+        for i, part in enumerate(path):
+            if part.startswith("#/"):
+                return "/".join([part] + path[i + 1 :])
+        return None
+
+    def parse_all_of(
+        self,
+        name: str,
+        obj: JsonSchemaObject,
+        path: list[str],
+        ignore_duplicate_model: bool = False,  # noqa: FBT001, FBT002
+    ) -> DataType:
+        """Parse allOf schema, adding discriminator literal field if applicable."""
+        result = super().parse_all_of(name, obj, path, ignore_duplicate_model)
+
+        schema_ref = self._get_schema_ref_from_path(path)
+        if schema_ref:
+            discriminator_info = self._get_discriminator_literal_for_schema(schema_ref)
+            if discriminator_info:
+                property_name, literal_value = discriminator_info
+                self._add_discriminator_literal_field(result, property_name, literal_value)
+
+        return result
+
+    def _add_discriminator_literal_field(
+        self, data_type: DataType, property_name: str, literal_value: str
+    ) -> None:
+        """Add a discriminator literal field to the model referenced by data_type."""
+        if not data_type.reference:
+            return
+
+        for model in self.results:
+            if model.reference == data_type.reference:
+                field_name, alias = self.model_resolver.get_valid_field_name_and_alias(property_name)
+                literal_data_type = self.data_type(literals=[literal_value])
+                discriminator_field = self.data_model_field_type(
+                    name=field_name,
+                    data_type=literal_data_type,
+                    required=True,
+                    alias=alias,
+                    strip_default_none=self.strip_default_none,
+                    use_annotated=self.use_annotated,
+                    use_field_description=self.use_field_description,
+                    use_inline_field_description=self.use_inline_field_description,
+                    original_name=property_name,
+                )
+                existing_field_names = {f.name for f in model.fields}
+                if field_name not in existing_field_names:
+                    model.fields.insert(0, discriminator_field)
+                break
+
+    def get_ref_data_type(self, ref: str) -> DataType:
+        """Get a data type from a reference, handling discriminator inheritance pattern.
+
+        If the referenced schema has a discriminator with mapping (but no oneOf/anyOf),
+        return a discriminated union of the mapped child schemas instead.
+        """
+        resolved_ref = self.model_resolver.resolve_ref(ref)
+        ref_without_file = "#" + resolved_ref.split("#", 1)[-1] if "#" in resolved_ref else resolved_ref
+        if ref_without_file in self._base_schema_discriminators:
+            property_name, target_refs, mapping = self._base_schema_discriminators[ref_without_file]
+            data_types = [super().get_ref_data_type(target_ref) for target_ref in target_refs]
+            union_data_type = self.data_type(data_types=data_types)
+            self._pending_discriminator_for_field = {"propertyName": property_name, "mapping": mapping}
+            return union_data_type
+        return super().get_ref_data_type(ref)
+
+    def get_object_field(
+        self,
+        *,
+        field_name: str | None,
+        field: JsonSchemaObject,
+        required: bool,
+        field_type: DataType,
+        alias: str | None,
+        original_field_name: str | None,
+    ) -> DataModelFieldBase:
+        """Create a data model field, injecting discriminator info if applicable."""
+        extras = self.get_field_extras(field)
+        if hasattr(self, "_pending_discriminator_for_field") and self._pending_discriminator_for_field:
+            extras["discriminator"] = self._pending_discriminator_for_field
+            self._pending_discriminator_for_field = None
+        return self.data_model_field_type(
+            name=field_name,
+            default=field.default,
+            data_type=field_type,
+            required=required,
+            alias=alias,
+            constraints=field.dict() if self.is_constraints_field(field) else None,
+            nullable=field.nullable if self.strict_nullable and (field.has_default or required) else None,
+            strip_default_none=self.strip_default_none,
+            extras=extras,
+            use_annotated=self.use_annotated,
+            use_field_description=self.use_field_description,
+            use_inline_field_description=self.use_inline_field_description,
+            use_default_kwarg=self.use_default_kwarg,
+            original_name=original_field_name,
+            has_default=field.has_default,
+            type_has_null=field.type_has_null,
+        )
+
     def parse_raw(self) -> None:  # noqa: PLR0912, PLR0915
         """Parse OpenAPI specification including schemas, paths, and operations."""
         for source, path_parts in self._get_context_source_path_parts():  # noqa: PLR1702
@@ -653,6 +801,7 @@ class OpenAPIParser(JsonSchemaParser):
             self.raw_obj = specification
             schemas: dict[str, Any] = specification.get("components", {}).get("schemas", {})
             security: list[dict[str, list[str]]] | None = specification.get("security")
+            self._collect_discriminator_mappings(schemas, path_parts)
             if OpenAPIScope.Schemas in self.open_api_scopes:
                 for obj_name, raw_obj in schemas.items():
                     self.parse_raw_obj(
