@@ -919,6 +919,21 @@ class JsonSchemaParser(Parser):
 
         return self.data_type(reference=reference)
 
+    def _get_discriminator_literal_value_for_path(
+        self,
+        discriminator: Discriminator,
+        current_schema_path: str,
+    ) -> str | None:
+        """Look up the discriminator literal value for a schema path from the discriminator mapping."""
+        if not discriminator.mapping:
+            return None
+        for value, mapped_path in discriminator.mapping.items():
+            normalized_mapped = mapped_path.split("#")[-1] if "#" in mapped_path else mapped_path
+            normalized_current = current_schema_path.split("#")[-1] if "#" in current_schema_path else current_schema_path
+            if normalized_mapped == normalized_current:
+                return value
+        return None
+
     def _parse_all_of_item(  # noqa: PLR0913, PLR0917
         self,
         name: str,
@@ -928,10 +943,29 @@ class JsonSchemaParser(Parser):
         base_classes: list[Reference],
         required: list[str],
         union_models: list[Reference],
+        current_schema_path: str | None = None,
     ) -> None:
         for all_of_item in obj.allOf:
             if all_of_item.ref:  # $ref
                 base_classes.append(self.model_resolver.add_ref(all_of_item.ref))
+                if current_schema_path:
+                    ref_schema = get_model_by_path(self.raw_obj, all_of_item.ref[2:].split("/"))
+                    ref_obj = self.SCHEMA_OBJECT_TYPE.parse_obj(ref_schema)
+                    if ref_obj.discriminator and isinstance(ref_obj.discriminator, Discriminator):
+                        discriminator_value = self._get_discriminator_literal_value_for_path(
+                            ref_obj.discriminator, current_schema_path
+                        )
+                        if discriminator_value is not None:
+                            property_name = ref_obj.discriminator.propertyName
+                            field_name, alias = self.model_resolver.get_valid_field_name_and_alias(property_name)
+                            discriminator_field = self.data_model_field_type(
+                                name=field_name,
+                                data_type=self.data_type(literals=[discriminator_value]),
+                                required=True,
+                                alias=alias if alias != field_name else None,
+                                original_name=property_name,
+                            )
+                            fields.append(discriminator_field)
             else:
                 module_name = get_module_name(name, None, treat_dot_as_module=self.treat_dot_as_module)
                 object_fields = self.parse_object_fields(
@@ -980,7 +1014,8 @@ class JsonSchemaParser(Parser):
         base_classes: list[Reference] = []
         required: list[str] = []
         union_models: list[Reference] = []
-        self._parse_all_of_item(name, obj, path, fields, base_classes, required, union_models)
+        current_schema_path = "#/" + "/".join(path) if path else None
+        self._parse_all_of_item(name, obj, path, fields, base_classes, required, union_models, current_schema_path)
         if not union_models:
             return self._parse_object_common_part(
                 name, obj, path, ignore_duplicate_model, fields, base_classes, required
