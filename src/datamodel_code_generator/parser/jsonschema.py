@@ -919,6 +919,61 @@ class JsonSchemaParser(Parser):
 
         return self.data_type(reference=reference)
 
+    def _get_discriminator_value_for_schema(
+        self,
+        ref: str,
+        current_path: list[str],
+    ) -> tuple[str, str] | None:
+        """Get the discriminator property name and value for the current schema.
+
+        If the referenced schema has a discriminator with a mapping that includes
+        the current schema, return the (propertyName, discriminatorValue) tuple.
+        """
+        if get_ref_type(ref) != JSONReference.LOCAL:
+            return None
+
+        try:
+            ref_path = ref[2:].split("/") if ref.startswith("#/") else ref.split("/")
+            ref_schema = get_model_by_path(self.raw_obj, ref_path)
+        except (KeyError, NotImplementedError):
+            return None
+
+        discriminator = ref_schema.get("discriminator")
+        if not discriminator or not isinstance(discriminator, dict):
+            return None
+
+        property_name = discriminator.get("propertyName")
+        mapping = discriminator.get("mapping")
+        if not property_name or not mapping:
+            return None
+
+        current_path_normalized = []
+        for part in current_path:
+            if part.startswith("#/"):
+                current_path_normalized.extend(part[2:].split("/"))
+            elif part.startswith("#"):
+                current_path_normalized.extend(part[1:].split("/"))
+            elif "/" not in part:
+                current_path_normalized.append(part)
+            else:
+                current_path_normalized.extend(part.split("/"))
+
+        for disc_value, mapped_ref in mapping.items():
+            if mapped_ref.startswith("#/"):
+                mapped_path = mapped_ref[2:].split("/")
+            elif mapped_ref.startswith("#"):
+                mapped_path = mapped_ref[1:].split("/")
+            else:
+                mapped_path = mapped_ref.split("/")
+
+            if mapped_path == current_path_normalized:
+                return (property_name, disc_value)
+            if len(mapped_path) >= 3 and len(current_path_normalized) >= 3:
+                if mapped_path[-3:] == current_path_normalized[-3:]:
+                    return (property_name, disc_value)
+
+        return None
+
     def _parse_all_of_item(  # noqa: PLR0913, PLR0917
         self,
         name: str,
@@ -928,10 +983,17 @@ class JsonSchemaParser(Parser):
         base_classes: list[Reference],
         required: list[str],
         union_models: list[Reference],
-    ) -> None:
+        discriminator_info: tuple[str, str] | None = None,
+    ) -> tuple[str, str] | None:
+        """Parse allOf items and return discriminator info if found."""
+        found_discriminator_info: tuple[str, str] | None = discriminator_info
         for all_of_item in obj.allOf:
             if all_of_item.ref:  # $ref
                 base_classes.append(self.model_resolver.add_ref(all_of_item.ref))
+                if found_discriminator_info is None:
+                    found_discriminator_info = self._get_discriminator_value_for_schema(
+                        all_of_item.ref, path
+                    )
             else:
                 module_name = get_module_name(name, None, treat_dot_as_module=self.treat_dot_as_module)
                 object_fields = self.parse_object_fields(
@@ -944,7 +1006,7 @@ class JsonSchemaParser(Parser):
                     fields.extend(object_fields)
                 elif all_of_item.required:
                     required.extend(all_of_item.required)
-                self._parse_all_of_item(
+                nested_disc_info = self._parse_all_of_item(
                     name,
                     all_of_item,
                     path,
@@ -952,13 +1014,17 @@ class JsonSchemaParser(Parser):
                     base_classes,
                     required,
                     union_models,
+                    found_discriminator_info,
                 )
+                if nested_disc_info is not None and found_discriminator_info is None:
+                    found_discriminator_info = nested_disc_info
                 if all_of_item.anyOf:
                     self.model_resolver.add(path, name, class_name=True, loaded=True)
                     union_models.extend(d.reference for d in self.parse_any_of(name, all_of_item, path) if d.reference)
                 if all_of_item.oneOf:
                     self.model_resolver.add(path, name, class_name=True, loaded=True)
                     union_models.extend(d.reference for d in self.parse_one_of(name, all_of_item, path) if d.reference)
+        return found_discriminator_info
 
     def parse_all_of(
         self,
@@ -980,7 +1046,22 @@ class JsonSchemaParser(Parser):
         base_classes: list[Reference] = []
         required: list[str] = []
         union_models: list[Reference] = []
-        self._parse_all_of_item(name, obj, path, fields, base_classes, required, union_models)
+        discriminator_info = self._parse_all_of_item(name, obj, path, fields, base_classes, required, union_models)
+        if discriminator_info is not None:
+            property_name, disc_value = discriminator_info
+            field_name, alias = self.model_resolver.get_valid_field_name_and_alias(property_name)
+            discriminator_field = self.data_model_field_type(
+                name=field_name,
+                data_type=self.data_type(literals=[disc_value]),
+                required=True,
+                alias=alias,
+                strip_default_none=self.strip_default_none,
+                use_annotated=self.use_annotated,
+                use_field_description=self.use_field_description,
+                use_inline_field_description=self.use_inline_field_description,
+                original_name=property_name,
+            )
+            fields.insert(0, discriminator_field)
         if not union_models:
             return self._parse_object_common_part(
                 name, obj, path, ignore_duplicate_model, fields, base_classes, required
