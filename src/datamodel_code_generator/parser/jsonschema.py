@@ -1747,6 +1747,58 @@ class JsonSchemaParser(Parser):
         )
         self.parse_obj(name, obj, path)
 
+    def _collect_discriminator_mappings_for_allof(
+        self, obj: JsonSchemaObject, path: list[str]
+    ) -> None:
+        """Collect discriminator mappings for schemas that use allOf inheritance.
+
+        When a schema uses allOf to reference a parent schema that has a discriminator
+        with mapping, this method stores the mapping so that the current schema can
+        have its discriminator field set to the appropriate Literal type during
+        post-processing.
+
+        This only applies when:
+        1. The current schema uses allOf
+        2. One of the allOf items is a $ref to another schema
+        3. That referenced schema has a discriminator with mapping
+        4. The mapping includes a reference to the current schema
+        """
+        if not obj.allOf:
+            return
+
+        for all_of_item in obj.allOf:
+            if not all_of_item.ref or not all_of_item.ref.startswith("#"):
+                continue
+
+            try:
+                ref_path_parts = all_of_item.ref[2:].split("/")
+                ref_schema = get_model_by_path(self.raw_obj, ref_path_parts)
+                if not isinstance(ref_schema, dict):
+                    continue
+
+                discriminator = ref_schema.get("discriminator")
+                if not discriminator or not isinstance(discriminator, dict):
+                    continue
+
+                property_name = discriminator.get("propertyName")
+                mapping = discriminator.get("mapping")
+                if not property_name or not mapping:
+                    continue
+
+                for discriminator_value, mapped_ref in mapping.items():
+                    if not mapped_ref.startswith("#"):
+                        continue
+                    mapped_ref_parts = mapped_ref[2:].split("/")
+                    if path[1:] == [f"#/{mapped_ref_parts[0]}"] + mapped_ref_parts[1:]:
+                        current_path = path[0] + mapped_ref
+                        self._allof_discriminator_mappings[current_path] = (
+                            property_name,
+                            discriminator_value,
+                        )
+                        return
+            except (KeyError, TypeError):
+                continue
+
     def parse_obj(
         self,
         name: str,
@@ -1754,6 +1806,7 @@ class JsonSchemaParser(Parser):
         path: list[str],
     ) -> None:
         """Parse a JsonSchemaObject by dispatching to appropriate parse methods."""
+        self._collect_discriminator_mappings_for_allof(obj, path)
         if obj.is_array:
             self.parse_array(name, obj, path)
         elif obj.allOf:
