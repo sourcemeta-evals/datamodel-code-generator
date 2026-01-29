@@ -841,6 +841,62 @@ class Parser(ABC):
                 )
                 models.remove(model)
 
+    def __expand_discriminator_with_allof_mapping(
+        self,
+        models: list[DataModel],
+    ) -> None:
+        """Expand references to schemas with discriminator+mapping to Union types.
+
+        When a schema has a discriminator with mapping but no oneOf/anyOf (common with
+        allOf inheritance pattern), references to that schema should be expanded to a
+        Union of the mapped types with the discriminator info added to the field.
+        """
+        model_path_to_discriminator: dict[str, dict[str, Any]] = {}
+        model_path_to_model: dict[str, DataModel] = {}
+
+        for model in models:
+            model_path_to_model[model.path] = model
+            discriminator = model.extra_template_data.get("discriminator")
+            if discriminator and isinstance(discriminator, dict):
+                mapping = discriminator.get("mapping")
+                if mapping:
+                    model_path_to_discriminator[model.path] = discriminator
+
+        if not model_path_to_discriminator:
+            return
+
+        for model in models:
+            for field in model.fields:
+                if field.extras.get("discriminator"):
+                    continue
+
+                ref = field.data_type.reference
+                if not ref:
+                    continue
+
+                discriminator_info = model_path_to_discriminator.get(ref.path)
+                if not discriminator_info:
+                    continue
+
+                mapping = discriminator_info.get("mapping", {})
+                if not mapping:
+                    continue
+
+                mapped_data_types: list[DataType] = []
+                for mapped_ref_path in mapping.values():
+                    if mapped_ref_path.startswith("#/"):
+                        mapped_ref_path = mapped_ref_path[2:]
+                    for candidate_path, candidate_model in model_path_to_model.items():
+                        if candidate_path.endswith(mapped_ref_path) or candidate_path.split("#/")[-1] == mapped_ref_path.split("/")[-1]:
+                            mapped_data_type = self.data_type(reference=candidate_model.reference)
+                            mapped_data_types.append(mapped_data_type)
+                            break
+
+                if mapped_data_types:
+                    field.extras["discriminator"] = discriminator_info.copy()
+                    field.data_type = self.data_type(data_types=mapped_data_types)
+                    field.data_type.parent = field
+
     def __apply_discriminator_type(  # noqa: PLR0912, PLR0915
         self,
         models: list[DataModel],
@@ -1503,6 +1559,7 @@ class Parser(ABC):
             self.__set_default_enum_member(models)
             self.__sort_models(models, imports)
             self.__change_field_name(models)
+            self.__expand_discriminator_with_allof_mapping(models)
             self.__apply_discriminator_type(models, imports)
             self.__set_one_literal_on_default(models)
 
