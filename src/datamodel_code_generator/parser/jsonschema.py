@@ -919,6 +919,58 @@ class JsonSchemaParser(Parser):
 
         return self.data_type(reference=reference)
 
+    def _get_discriminator_literal_for_allof(
+        self,
+        ref: str,
+        current_path: list[str],
+    ) -> tuple[str, str] | None:
+        """Check if the referenced schema has a discriminator mapping that includes the current schema.
+
+        Returns a tuple of (property_name, literal_value) if found, None otherwise.
+        """
+        if get_ref_type(ref) != JSONReference.LOCAL:
+            return None
+
+        try:
+            ref_path = ref[2:].split("/")  # Remove '#/' prefix
+            ref_schema = get_model_by_path(self.raw_obj, ref_path)
+        except (KeyError, NotImplementedError):
+            return None
+
+        discriminator = ref_schema.get("discriminator")
+        if not discriminator or not isinstance(discriminator, dict):
+            return None
+
+        property_name = discriminator.get("propertyName")
+        mapping = discriminator.get("mapping")
+        if not property_name or not mapping:
+            return None
+
+        # Build the current schema's ref path for comparison
+        # The path looks like ['test.yaml', '#/components', 'schemas', 'Cat']
+        # We need to convert it to '#/components/schemas/Cat' format
+        current_ref = None
+        for i, part in enumerate(current_path):
+            if part.startswith("#/"):
+                # Found the start of the JSON pointer
+                current_ref = part + "/" + "/".join(current_path[i + 1 :])
+                break
+
+        if not current_ref:
+            return None
+
+        # Check if current schema is in the mapping
+        for literal_value, mapped_ref in mapping.items():
+            # Normalize the mapped ref (remove file prefix if present)
+            normalized_mapped_ref = mapped_ref
+            if "#" in mapped_ref and not mapped_ref.startswith("#"):
+                normalized_mapped_ref = "#" + mapped_ref.split("#", 1)[1]
+
+            if normalized_mapped_ref == current_ref:
+                return (property_name, literal_value)
+
+        return None
+
     def _parse_all_of_item(  # noqa: PLR0913, PLR0917
         self,
         name: str,
@@ -932,6 +984,20 @@ class JsonSchemaParser(Parser):
         for all_of_item in obj.allOf:
             if all_of_item.ref:  # $ref
                 base_classes.append(self.model_resolver.add_ref(all_of_item.ref))
+                # Check if the referenced schema has a discriminator mapping for this schema
+                discriminator_info = self._get_discriminator_literal_for_allof(all_of_item.ref, path)
+                if discriminator_info:
+                    property_name, literal_value = discriminator_info
+                    field_name, alias = self.model_resolver.get_valid_field_name_and_alias(property_name)
+                    # Create a field with the literal type for the discriminator property
+                    discriminator_field = self.data_model_field_type(
+                        name=field_name,
+                        data_type=self.data_type(literals=[literal_value]),
+                        required=True,
+                        alias=alias if alias != field_name else None,
+                        original_name=property_name,
+                    )
+                    fields.append(discriminator_field)
             else:
                 module_name = get_module_name(name, None, treat_dot_as_module=self.treat_dot_as_module)
                 object_fields = self.parse_object_fields(
