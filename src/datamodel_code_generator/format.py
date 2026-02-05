@@ -53,6 +53,15 @@ class PythonVersion(Enum):
     def has_kw_only_dataclass(self) -> bool:
         return self._is_py_310_or_later
 
+    @cached_property
+    def _is_py_312_or_later(self) -> bool:  # pragma: no cover
+        return self.value not in {self.PY_39.value, self.PY_310.value, self.PY_311.value}
+
+    @property
+    def has_type_statement(self) -> bool:
+        """Python 3.12+ supports native `type` statement for type aliases."""
+        return self._is_py_312_or_later
+
 
 PythonVersionMin = PythonVersion.PY_39
 

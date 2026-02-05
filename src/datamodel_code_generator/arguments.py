@@ -312,6 +312,14 @@ typing_options.add_argument(
     action="store_true",
     default=None,
 )
+typing_options.add_argument(
+    "--use-type-alias",
+    help="Generate type aliases instead of RootModel classes. "
+    "Uses native `type` statement for Python 3.12+, TypeAliasType for Python 3.9-3.11 with Pydantic v2, "
+    "and TypeAlias annotation for Pydantic v1.",
+    action="store_true",
+    default=None,
+)
 
 # ======================================================================================
 # Customization options for generated model fields

@@ -1,0 +1,13 @@
+{%- set field = fields[0] %}
+{%- if field.annotated %}
+{%- set type_value = field.annotated %}
+{%- else %}
+{%- set type_value = field.type_hint %}
+{%- endif %}
+{%- if type_alias_style == 'type_statement' %}
+type {{ class_name }} = {{ type_value }}
+{%- elif type_alias_style == 'type_alias_type' %}
+{{ class_name }} = TypeAliasType("{{ class_name }}", {{ type_value }})
+{%- else %}
+{{ class_name }}: TypeAlias = {{ type_value }}
+{%- endif %}
