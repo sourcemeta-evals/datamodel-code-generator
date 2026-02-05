@@ -3320,3 +3320,47 @@ def test_main_jsonschema_forwarding_reference_collapse_root(tmp_path: Path) -> N
     for path in main_modular_dir.rglob("*.py"):
         result = tmp_path.joinpath(path.relative_to(main_modular_dir)).read_text()
         assert result == path.read_text()
+
+
+@pytest.mark.parametrize(
+    ("target_python_version", "expected_output"),
+    [
+        ("3.9", "type_alias_py39.py"),
+        ("3.12", "type_alias_py312.py"),
+    ],
+)
+@freeze_time("2019-07-26")
+def test_main_use_type_alias(target_python_version: str, expected_output: str, tmp_path: Path) -> None:
+    output_file: Path = tmp_path / "output.py"
+    return_code: Exit = main([
+        "--input",
+        str(JSON_SCHEMA_DATA_PATH / "type_alias.json"),
+        "--output",
+        str(output_file),
+        "--input-file-type",
+        "jsonschema",
+        "--use-type-alias",
+        "--target-python-version",
+        target_python_version,
+    ])
+    assert return_code == Exit.OK
+    assert output_file.read_text(encoding="utf-8") == (EXPECTED_JSON_SCHEMA_PATH / expected_output).read_text()
+
+
+@freeze_time("2019-07-26")
+def test_main_use_type_alias_with_annotated(tmp_path: Path) -> None:
+    output_file: Path = tmp_path / "output.py"
+    return_code: Exit = main([
+        "--input",
+        str(JSON_SCHEMA_DATA_PATH / "type_alias.json"),
+        "--output",
+        str(output_file),
+        "--input-file-type",
+        "jsonschema",
+        "--use-type-alias",
+        "--use-annotated",
+        "--target-python-version",
+        "3.9",
+    ])
+    assert return_code == Exit.OK
+    assert output_file.read_text(encoding="utf-8") == (EXPECTED_JSON_SCHEMA_PATH / "type_alias_py39_annotated.py").read_text()
