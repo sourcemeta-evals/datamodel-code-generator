@@ -264,6 +264,13 @@ typing_options.add_argument(
     default=None,
 )
 typing_options.add_argument(
+    "--use-annotated-type-alias",
+    help="Use typing.Annotated type alias instead of RootModel for simple types (Pydantic V2 only). "
+    "This generates `Total = Annotated[int, Field(ge=0)]` instead of `class Total(RootModel[int]): ...`",
+    action="store_true",
+    default=None,
+)
+typing_options.add_argument(
     "--use-generic-container-types",
     help="Use generic container types for type hinting (typing.Sequence, typing.Mapping). "
     "If `--use-standard-collections` option is set, then import from collections.abc instead of typing",

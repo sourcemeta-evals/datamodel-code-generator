@@ -1461,6 +1461,27 @@ def test_main_use_annotated_with_field_constraints(
 
 
 @freeze_time("2019-07-26")
+@pytest.mark.skipif(
+    black.__version__.split(".")[0] == "19",
+    reason="Installed black doesn't support the old style",
+)
+def test_main_use_annotated_type_alias_pydantic_v2(tmp_path: Path) -> None:
+    output_file: Path = tmp_path / "output.py"
+    return_code: Exit = main([
+        "--input",
+        str(OPEN_API_DATA_PATH / "api_constrained.yaml"),
+        "--output",
+        str(output_file),
+        "--use-annotated",
+        "--use-annotated-type-alias",
+        "--output-model",
+        "pydantic_v2.BaseModel",
+    ])
+    assert return_code == Exit.OK
+    assert output_file.read_text(encoding="utf-8") == (EXPECTED_OPENAPI_PATH / "use_annotated_type_alias_pydantic_v2.py").read_text()
+
+
+@freeze_time("2019-07-26")
 def test_main_nested_enum(tmp_path: Path) -> None:
     output_file: Path = tmp_path / "output.py"
     return_code: Exit = main([
