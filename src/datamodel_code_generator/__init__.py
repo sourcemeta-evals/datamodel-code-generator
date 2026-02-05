@@ -270,6 +270,7 @@ def generate(  # noqa: PLR0912, PLR0913, PLR0914, PLR0915
     use_double_quotes: bool = False,
     use_union_operator: bool = False,
     collapse_root_models: bool = False,
+    use_annotated_root_models: bool = False,
     special_field_name_prefix: str | None = None,
     remove_special_field_name_prefix: bool = False,
     capitalise_enum_members: bool = False,
@@ -414,7 +415,7 @@ def generate(  # noqa: PLR0912, PLR0913, PLR0914, PLR0915
 
     from datamodel_code_generator.model import get_data_model_types  # noqa: PLC0415
 
-    data_model_types = get_data_model_types(output_model_type, target_python_version)
+    data_model_types = get_data_model_types(output_model_type, target_python_version, use_annotated_root_models)
     source = input_text or input_
     assert not isinstance(source, Mapping)
     parser = parser_class(
