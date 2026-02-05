@@ -4,6 +4,7 @@ from typing import TYPE_CHECKING, Optional
 
 from pydantic import BaseModel as _BaseModel
 
+from .annotated_type_alias import AnnotatedTypeAlias
 from .base_model import BaseModel, DataModelField, UnionMode
 from .root_model import RootModel
 from .types import DataTypeManager
@@ -32,6 +33,7 @@ class ConfigDict(_BaseModel):
 
 
 __all__ = [
+    "AnnotatedTypeAlias",
     "BaseModel",
     "DataModelField",
     "DataTypeManager",

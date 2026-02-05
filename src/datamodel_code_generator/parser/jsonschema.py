@@ -446,6 +446,8 @@ class JsonSchemaParser(Parser):
         use_union_operator: bool = False,
         allow_responses_without_content: bool = False,
         collapse_root_models: bool = False,
+        use_annotated_type_alias: bool = False,
+        annotated_type_alias_type: type[DataModel] | None = None,
         special_field_name_prefix: str | None = None,
         remove_special_field_name_prefix: bool = False,
         capitalise_enum_members: bool = False,
@@ -524,6 +526,8 @@ class JsonSchemaParser(Parser):
             use_union_operator=use_union_operator,
             allow_responses_without_content=allow_responses_without_content,
             collapse_root_models=collapse_root_models,
+            use_annotated_type_alias=use_annotated_type_alias,
+            annotated_type_alias_type=annotated_type_alias_type,
             special_field_name_prefix=special_field_name_prefix,
             remove_special_field_name_prefix=remove_special_field_name_prefix,
             capitalise_enum_members=capitalise_enum_members,
@@ -1307,7 +1311,28 @@ class JsonSchemaParser(Parser):
             reference = self.model_resolver.add(path, name, loaded=True, class_name=True)
         self.set_title(reference.path, obj)
         self.set_additional_properties(reference.path, obj)
-        data_model_root_type = self.data_model_root_type(
+
+        is_simple_type = (
+            obj.type
+            and not obj.ref
+            and not obj.is_array
+            and not obj.anyOf
+            and not obj.oneOf
+            and not obj.allOf
+            and not obj.patternProperties
+            and not obj.enum
+            and not data_type.reference
+        )
+
+        use_annotated_alias = (
+            self.use_annotated_type_alias
+            and self.annotated_type_alias_type is not None
+            and is_simple_type
+        )
+
+        model_class = self.annotated_type_alias_type if use_annotated_alias else self.data_model_root_type
+
+        data_model_root_type = model_class(
             reference=reference,
             fields=[
                 self.data_model_field_type(
@@ -1318,7 +1343,7 @@ class JsonSchemaParser(Parser):
                     nullable=obj.nullable if self.strict_nullable else None,
                     strip_default_none=self.strip_default_none,
                     extras=self.get_field_extras(obj),
-                    use_annotated=self.use_annotated,
+                    use_annotated=self.use_annotated or use_annotated_alias,
                     use_field_description=self.use_field_description,
                     original_name=None,
                     has_default=obj.has_default,

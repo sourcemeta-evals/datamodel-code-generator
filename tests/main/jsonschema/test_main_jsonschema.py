@@ -3320,3 +3320,31 @@ def test_main_jsonschema_forwarding_reference_collapse_root(tmp_path: Path) -> N
     for path in main_modular_dir.rglob("*.py"):
         result = tmp_path.joinpath(path.relative_to(main_modular_dir)).read_text()
         assert result == path.read_text()
+
+
+@freeze_time("2019-07-26")
+def test_main_use_annotated_type_alias(tmp_path: Path) -> None:
+    """
+    Test --use-annotated-type-alias option to generate Annotated type aliases
+    instead of RootModel classes for simple types.
+    See: https://github.com/koxudaxi/datamodel-code-generator/issues/2427
+    """
+    output_file: Path = tmp_path / "output.py"
+    return_code: Exit = main([
+        "--input",
+        str(JSON_SCHEMA_DATA_PATH / "annotated_type_alias.json"),
+        "--output",
+        str(output_file),
+        "--input-file-type",
+        "jsonschema",
+        "--output-model-type",
+        "pydantic_v2.BaseModel",
+        "--use-annotated",
+        "--field-constraints",
+        "--use-annotated-type-alias",
+    ])
+    assert return_code == Exit.OK
+    assert (
+        output_file.read_text(encoding="utf-8")
+        == (EXPECTED_JSON_SCHEMA_PATH / "annotated_type_alias.py").read_text()
+    )

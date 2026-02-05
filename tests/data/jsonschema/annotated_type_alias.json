@@ -1,0 +1,43 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "definitions": {
+    "Total": {
+      "type": "integer",
+      "minimum": 0,
+      "title": "Total"
+    },
+    "Page": {
+      "type": "integer",
+      "minimum": 1,
+      "title": "Page"
+    },
+    "Name": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 100,
+      "title": "Name"
+    },
+    "Score": {
+      "type": "number",
+      "minimum": 0,
+      "maximum": 100,
+      "title": "Score"
+    }
+  },
+  "type": "object",
+  "properties": {
+    "total": {
+      "$ref": "#/definitions/Total"
+    },
+    "page": {
+      "$ref": "#/definitions/Page"
+    },
+    "name": {
+      "$ref": "#/definitions/Name"
+    },
+    "score": {
+      "$ref": "#/definitions/Score"
+    }
+  },
+  "required": ["total", "page", "name", "score"]
+}

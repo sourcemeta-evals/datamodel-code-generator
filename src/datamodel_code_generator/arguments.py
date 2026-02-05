@@ -120,6 +120,12 @@ model_options.add_argument(
     help="Models generated with a root-type field will be merged into the models using that root-type model",
 )
 model_options.add_argument(
+    "--use-annotated-type-alias",
+    action="store_true",
+    default=None,
+    help="Use Annotated type aliases instead of RootModel for simple types (e.g., `UID = Annotated[int, Field(ge=0)]` instead of `class UID(RootModel[int]): ...`). Only works with pydantic v2.",
+)
+model_options.add_argument(
     "--disable-appending-item-suffix",
     help="Disable appending `Item` suffix to model name in an array",
     action="store_true",

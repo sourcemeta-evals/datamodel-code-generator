@@ -363,6 +363,8 @@ class Parser(ABC):
         use_union_operator: bool = False,
         allow_responses_without_content: bool = False,
         collapse_root_models: bool = False,
+        use_annotated_type_alias: bool = False,
+        annotated_type_alias_type: type[DataModel] | None = None,
         special_field_name_prefix: str | None = None,
         remove_special_field_name_prefix: bool = False,
         capitalise_enum_members: bool = False,
@@ -488,6 +490,8 @@ class Parser(ABC):
         self.use_double_quotes = use_double_quotes
         self.allow_responses_without_content = allow_responses_without_content
         self.collapse_root_models = collapse_root_models
+        self.use_annotated_type_alias = use_annotated_type_alias
+        self.annotated_type_alias_type = annotated_type_alias_type
         self.capitalise_enum_members = capitalise_enum_members
         self.keep_model_order = keep_model_order
         self.use_one_literal_as_default = use_one_literal_as_default
