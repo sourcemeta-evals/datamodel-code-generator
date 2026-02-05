@@ -483,6 +483,25 @@ def test_main_with_field_constraints(output_model: str, expected_output: str, ar
     assert output_file.read_text(encoding="utf-8") == (EXPECTED_OPENAPI_PATH / expected_output).read_text()
 
 
+@freeze_time("2019-07-26")
+def test_main_use_annotated_root_model(tmp_path: Path) -> None:
+    output_file: Path = tmp_path / "output.py"
+    return_code: Exit = main([
+        "--input",
+        str(OPEN_API_DATA_PATH / "api_constrained.yaml"),
+        "--output",
+        str(output_file),
+        "--output-model-type",
+        "pydantic_v2.BaseModel",
+        "--use-annotated-root-model",
+    ])
+    assert return_code == Exit.OK
+    assert (
+        output_file.read_text(encoding="utf-8")
+        == (EXPECTED_OPENAPI_PATH / "use_annotated_root_model_pydantic_v2.py").read_text()
+    )
+
+
 @pytest.mark.parametrize(
     ("output_model", "expected_output"),
     [

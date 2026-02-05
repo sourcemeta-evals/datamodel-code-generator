@@ -265,6 +265,7 @@ def generate(  # noqa: PLR0912, PLR0913, PLR0914, PLR0915
     http_headers: Sequence[tuple[str, str]] | None = None,
     http_ignore_tls: bool = False,
     use_annotated: bool = False,
+    use_annotated_root_model: bool = False,
     use_non_positive_negative_number_constrained_types: bool = False,
     original_field_name_delimiter: str | None = None,
     use_double_quotes: bool = False,
@@ -420,7 +421,11 @@ def generate(  # noqa: PLR0912, PLR0913, PLR0914, PLR0915
     parser = parser_class(
         source=source,
         data_model_type=data_model_types.data_model,
-        data_model_root_type=data_model_types.root_model,
+        data_model_root_type=(
+            data_model_types.annotated_type_alias
+            if use_annotated_root_model and data_model_types.annotated_type_alias
+            else data_model_types.root_model
+        ),
         data_model_field_type=data_model_types.field_model,
         data_type_manager_type=data_model_types.data_type_manager,
         base_class=base_class,

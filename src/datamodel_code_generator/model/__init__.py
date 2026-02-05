@@ -23,6 +23,7 @@ class DataModelSet(NamedTuple):
     data_type_manager: type[DataTypeManagerABC]
     dump_resolve_reference_action: Callable[[Iterable[str]], str] | None
     known_third_party: list[str] | None = None
+    annotated_type_alias: type[DataModel] | None = None
 
 
 def get_data_model_types(
@@ -49,6 +50,7 @@ def get_data_model_types(
             field_model=pydantic_v2.DataModelField,
             data_type_manager=pydantic_v2.DataTypeManager,
             dump_resolve_reference_action=pydantic_v2.dump_resolve_reference_action,
+            annotated_type_alias=pydantic_v2.AnnotatedTypeAlias,
         )
     if data_model_type == DataModelType.DataclassesDataclass:
         return DataModelSet(

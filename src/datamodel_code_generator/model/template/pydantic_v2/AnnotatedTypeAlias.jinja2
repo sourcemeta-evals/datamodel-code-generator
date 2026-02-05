@@ -1,0 +1,16 @@
+{%- macro get_type_hint(_fields) -%}
+{%- if _fields -%}
+{#There will only ever be a single field for AnnotatedTypeAlias#}
+{{- _fields[0].type_hint}}
+{%- endif -%}
+{%- endmacro -%}
+
+{%- if description %}
+# {{ description | replace('\n', '\n# ') }}
+{%- endif %}
+{%- set field = fields[0] %}
+{%- if field.annotated %}
+{{ class_name }}: TypeAlias = {{ field.annotated }}
+{%- else %}
+{{ class_name }}: TypeAlias = {{ field.type_hint }}
+{%- endif %}
