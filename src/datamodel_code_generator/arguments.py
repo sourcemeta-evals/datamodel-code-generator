@@ -191,6 +191,12 @@ model_options.add_argument(
     default=None,
 )
 model_options.add_argument(
+    "--use-type-alias",
+    help="Generate type aliases instead of RootModel subclasses for root types",
+    action="store_true",
+    default=None,
+)
+model_options.add_argument(
     "--use-title-as-name",
     help="use titles as class names of models",
     action="store_true",
