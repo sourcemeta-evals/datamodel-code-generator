@@ -6,6 +6,7 @@ from pydantic import BaseModel as _BaseModel
 
 from .base_model import BaseModel, DataModelField, UnionMode
 from .root_model import RootModel
+from .type_alias_model import TypeAliasModel
 from .types import DataTypeManager
 
 if TYPE_CHECKING:
@@ -36,6 +37,7 @@ __all__ = [
     "DataModelField",
     "DataTypeManager",
     "RootModel",
+    "TypeAliasModel",
     "UnionMode",
     "dump_resolve_reference_action",
 ]

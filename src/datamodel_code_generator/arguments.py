@@ -264,6 +264,15 @@ typing_options.add_argument(
     default=None,
 )
 typing_options.add_argument(
+    "--use-annotated-root-model",
+    help="Use Annotated type alias instead of RootModel for simple types (pydantic v2 only). "
+    "For example, generates `Total = Annotated[int, Field(ge=0)]` instead of "
+    "`class Total(RootModel[int]): root: Annotated[int, Field(ge=0)]`. "
+    "This makes the types easier to use with validate_call and f-strings.",
+    action="store_true",
+    default=None,
+)
+typing_options.add_argument(
     "--use-generic-container-types",
     help="Use generic container types for type hinting (typing.Sequence, typing.Mapping). "
     "If `--use-standard-collections` option is set, then import from collections.abc instead of typing",
