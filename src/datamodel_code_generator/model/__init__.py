@@ -25,9 +25,27 @@ class DataModelSet(NamedTuple):
     known_third_party: list[str] | None = None
 
 
+def _get_type_alias_root_model(
+    data_model_type: DataModelType,
+    target_python_version: PythonVersion,
+) -> type[DataModel]:
+    from . import type_alias  # noqa: PLC0415
+    from datamodel_code_generator import DataModelType  # noqa: PLC0415
+
+    if target_python_version.has_type_statement:
+        return type_alias.TypeStatementModel
+    if data_model_type == DataModelType.PydanticV2BaseModel:
+        return type_alias.TypeAliasTypeModel
+    if target_python_version == PythonVersion.PY_39:
+        return type_alias.TypeAliasAnnotationExtModel
+    return type_alias.TypeAliasAnnotationModel
+
+
 def get_data_model_types(
     data_model_type: DataModelType,
     target_python_version: PythonVersion = DEFAULT_TARGET_PYTHON_VERSION,
+    *,
+    use_type_alias: bool = False,
 ) -> DataModelSet:
     from datamodel_code_generator import DataModelType  # noqa: PLC0415
 
@@ -35,33 +53,53 @@ def get_data_model_types(
     from .types import DataTypeManager  # noqa: PLC0415
 
     if data_model_type == DataModelType.PydanticBaseModel:
+        root_model: type[DataModel] = (
+            _get_type_alias_root_model(data_model_type, target_python_version)
+            if use_type_alias
+            else pydantic.CustomRootType
+        )
         return DataModelSet(
             data_model=pydantic.BaseModel,
-            root_model=pydantic.CustomRootType,
+            root_model=root_model,
             field_model=pydantic.DataModelField,
             data_type_manager=pydantic.DataTypeManager,
             dump_resolve_reference_action=pydantic.dump_resolve_reference_action,
         )
     if data_model_type == DataModelType.PydanticV2BaseModel:
+        root_model = (
+            _get_type_alias_root_model(data_model_type, target_python_version)
+            if use_type_alias
+            else pydantic_v2.RootModel
+        )
         return DataModelSet(
             data_model=pydantic_v2.BaseModel,
-            root_model=pydantic_v2.RootModel,
+            root_model=root_model,
             field_model=pydantic_v2.DataModelField,
             data_type_manager=pydantic_v2.DataTypeManager,
             dump_resolve_reference_action=pydantic_v2.dump_resolve_reference_action,
         )
     if data_model_type == DataModelType.DataclassesDataclass:
+        root_model = (
+            _get_type_alias_root_model(data_model_type, target_python_version)
+            if use_type_alias
+            else rootmodel.RootModel
+        )
         return DataModelSet(
             data_model=dataclass.DataClass,
-            root_model=rootmodel.RootModel,
+            root_model=root_model,
             field_model=dataclass.DataModelField,
             data_type_manager=dataclass.DataTypeManager,
             dump_resolve_reference_action=None,
         )
     if data_model_type == DataModelType.TypingTypedDict:
+        root_model = (
+            _get_type_alias_root_model(data_model_type, target_python_version)
+            if use_type_alias
+            else rootmodel.RootModel
+        )
         return DataModelSet(
             data_model=typed_dict.TypedDict,
-            root_model=rootmodel.RootModel,
+            root_model=root_model,
             field_model=(
                 typed_dict.DataModelField
                 if target_python_version.has_typed_dict_non_required
@@ -71,9 +109,14 @@ def get_data_model_types(
             dump_resolve_reference_action=None,
         )
     if data_model_type == DataModelType.MsgspecStruct:
+        root_model = (
+            _get_type_alias_root_model(data_model_type, target_python_version)
+            if use_type_alias
+            else msgspec.RootModel
+        )
         return DataModelSet(
             data_model=msgspec.Struct,
-            root_model=msgspec.RootModel,
+            root_model=root_model,
             field_model=msgspec.DataModelField,
             data_type_manager=msgspec.DataTypeManager,
             dump_resolve_reference_action=None,
