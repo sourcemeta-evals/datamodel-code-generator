@@ -1,0 +1,8 @@
+{%- set field = fields[0] %}
+{%- if use_type_statement %}
+type {{ class_name }} = {{ field.type_hint if not field.annotated else field.annotated }}
+{%- elif use_type_alias_type %}
+{{ class_name }} = TypeAliasType("{{ class_name }}", {{ field.type_hint if not field.annotated else field.annotated }})
+{%- else %}
+{{ class_name }}: TypeAlias = {{ field.type_hint if not field.annotated else field.annotated }}
+{%- endif %}
