@@ -265,6 +265,7 @@ def generate(  # noqa: PLR0912, PLR0913, PLR0914, PLR0915
     http_headers: Sequence[tuple[str, str]] | None = None,
     http_ignore_tls: bool = False,
     use_annotated: bool = False,
+    use_annotated_type_alias: bool = False,
     use_non_positive_negative_number_constrained_types: bool = False,
     original_field_name_delimiter: str | None = None,
     use_double_quotes: bool = False,
@@ -414,7 +415,7 @@ def generate(  # noqa: PLR0912, PLR0913, PLR0914, PLR0915
 
     from datamodel_code_generator.model import get_data_model_types  # noqa: PLC0415
 
-    data_model_types = get_data_model_types(output_model_type, target_python_version)
+    data_model_types = get_data_model_types(output_model_type, target_python_version, use_annotated_type_alias)
     source = input_text or input_
     assert not isinstance(source, Mapping)
     parser = parser_class(
@@ -472,6 +473,7 @@ def generate(  # noqa: PLR0912, PLR0913, PLR0914, PLR0915
         http_headers=http_headers,
         http_ignore_tls=http_ignore_tls,
         use_annotated=use_annotated,
+        use_annotated_type_alias=use_annotated_type_alias,
         use_non_positive_negative_number_constrained_types=use_non_positive_negative_number_constrained_types,
         original_field_name_delimiter=original_field_name_delimiter,
         use_double_quotes=use_double_quotes,

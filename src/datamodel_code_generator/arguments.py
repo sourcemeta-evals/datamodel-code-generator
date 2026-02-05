@@ -264,6 +264,15 @@ typing_options.add_argument(
     default=None,
 )
 typing_options.add_argument(
+    "--use-annotated-type-alias",
+    help="Use Annotated type aliases instead of RootModel classes for simple types. "
+    "For example, generates `Total = Annotated[int, Field(ge=0)]` instead of "
+    "`class Total(RootModel[int]): root: Annotated[int, Field(ge=0)]`. "
+    "This option implies `--use-annotated` and `--field-constraints`.",
+    action="store_true",
+    default=None,
+)
+typing_options.add_argument(
     "--use-generic-container-types",
     help="Use generic container types for type hinting (typing.Sequence, typing.Mapping). "
     "If `--use-standard-collections` option is set, then import from collections.abc instead of typing",

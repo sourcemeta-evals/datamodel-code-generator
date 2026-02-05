@@ -28,6 +28,7 @@ class DataModelSet(NamedTuple):
 def get_data_model_types(
     data_model_type: DataModelType,
     target_python_version: PythonVersion = DEFAULT_TARGET_PYTHON_VERSION,
+    use_annotated_type_alias: bool = False,
 ) -> DataModelSet:
     from datamodel_code_generator import DataModelType  # noqa: PLC0415
 
@@ -45,7 +46,7 @@ def get_data_model_types(
     if data_model_type == DataModelType.PydanticV2BaseModel:
         return DataModelSet(
             data_model=pydantic_v2.BaseModel,
-            root_model=pydantic_v2.RootModel,
+            root_model=pydantic_v2.RootModelTypeAlias if use_annotated_type_alias else pydantic_v2.RootModel,
             field_model=pydantic_v2.DataModelField,
             data_type_manager=pydantic_v2.DataTypeManager,
             dump_resolve_reference_action=pydantic_v2.dump_resolve_reference_action,

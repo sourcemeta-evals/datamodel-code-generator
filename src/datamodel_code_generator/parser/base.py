@@ -357,6 +357,7 @@ class Parser(ABC):
         http_headers: Sequence[tuple[str, str]] | None = None,
         http_ignore_tls: bool = False,
         use_annotated: bool = False,
+        use_annotated_type_alias: bool = False,
         use_non_positive_negative_number_constrained_types: bool = False,
         original_field_name_delimiter: str | None = None,
         use_double_quotes: bool = False,
@@ -481,6 +482,7 @@ class Parser(ABC):
         self.http_query_parameters: Sequence[tuple[str, str]] | None = http_query_parameters
         self.http_ignore_tls: bool = http_ignore_tls
         self.use_annotated: bool = use_annotated
+        self.use_annotated_type_alias: bool = use_annotated_type_alias
         if self.use_annotated and not self.field_constraints:  # pragma: no cover
             msg = "`use_annotated=True` has to be used with `field_constraints=True`"
             raise Exception(msg)  # noqa: TRY002

@@ -345,6 +345,7 @@ class Config(BaseModel):
     http_headers: Optional[Sequence[tuple[str, str]]] = None  # noqa: UP045
     http_ignore_tls: bool = False
     use_annotated: bool = False
+    use_annotated_type_alias: bool = False
     use_non_positive_negative_number_constrained_types: bool = False
     original_field_name_delimiter: Optional[str] = None  # noqa: UP045
     use_double_quotes: bool = False
@@ -377,6 +378,10 @@ class Config(BaseModel):
             set_args["use_annotated"] = True
 
         if set_args.get("use_annotated"):
+            set_args["field_constraints"] = True
+
+        if set_args.get("use_annotated_type_alias"):
+            set_args["use_annotated"] = True
             set_args["field_constraints"] = True
 
         parsed_args = Config.parse_obj(set_args)
@@ -560,6 +565,7 @@ def main(args: Sequence[str] | None = None) -> Exit:  # noqa: PLR0911, PLR0912, 
             http_headers=config.http_headers,
             http_ignore_tls=config.http_ignore_tls,
             use_annotated=config.use_annotated,
+            use_annotated_type_alias=config.use_annotated_type_alias,
             use_non_positive_negative_number_constrained_types=config.use_non_positive_negative_number_constrained_types,
             original_field_name_delimiter=config.original_field_name_delimiter,
             use_double_quotes=config.use_double_quotes,
