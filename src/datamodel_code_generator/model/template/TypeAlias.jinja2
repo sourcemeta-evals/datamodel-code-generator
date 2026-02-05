@@ -1,0 +1,10 @@
+{%- if description %}
+# {{ description | replace('\n', '\n# ') }}
+{%- endif %}
+{%- if use_native_type_statement %}
+type {{ class_name }} = {{ type_hint }}
+{%- elif use_type_alias_type %}
+{{ class_name }} = TypeAliasType("{{ class_name }}", {{ type_hint }})
+{%- else %}
+{{ class_name }}: TypeAlias = {{ type_hint }}
+{%- endif %}
