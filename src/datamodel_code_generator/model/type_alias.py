@@ -4,7 +4,6 @@ from collections import defaultdict
 from typing import TYPE_CHECKING, Any, ClassVar
 
 from datamodel_code_generator.imports import (
-    IMPORT_TYPE_ALIAS,
     IMPORT_TYPE_ALIAS_TYPE,
     IMPORT_TYPE_ALIAS_TYPING_EXTENSIONS,
     Import,
