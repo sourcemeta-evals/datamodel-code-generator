@@ -237,6 +237,7 @@ def generate(  # noqa: PLR0912, PLR0913, PLR0914, PLR0915
     class_name: str | None = None,
     use_standard_collections: bool = False,
     use_schema_description: bool = False,
+    use_type_alias: bool = False,
     use_field_description: bool = False,
     use_default_kwarg: bool = False,
     reuse_model: bool = False,
@@ -414,7 +415,7 @@ def generate(  # noqa: PLR0912, PLR0913, PLR0914, PLR0915
 
     from datamodel_code_generator.model import get_data_model_types  # noqa: PLC0415
 
-    data_model_types = get_data_model_types(output_model_type, target_python_version)
+    data_model_types = get_data_model_types(output_model_type, target_python_version, use_type_alias)
     source = input_text or input_
     assert not isinstance(source, Mapping)
     parser = parser_class(
@@ -443,6 +444,7 @@ def generate(  # noqa: PLR0912, PLR0913, PLR0914, PLR0915
         use_standard_collections=use_standard_collections,
         base_path=input_.parent if isinstance(input_, Path) and input_.is_file() else None,
         use_schema_description=use_schema_description,
+        use_type_alias=use_type_alias,
         use_field_description=use_field_description,
         use_default_kwarg=use_default_kwarg,
         reuse_model=reuse_model,

@@ -1,0 +1,7 @@
+{%- if fields[0].annotated -%}
+{{ class_name }}: TypeAlias = {{ fields[0].annotated }}
+{%- elif fields[0].field -%}
+{{ class_name }}: TypeAlias = Annotated[{{ fields[0].type_hint }}, {{ fields[0].field }}]
+{%- else -%}
+{{ class_name }}: TypeAlias = {{ fields[0].type_hint }}
+{%- endif %}

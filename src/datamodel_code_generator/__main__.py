@@ -317,6 +317,7 @@ class Config(BaseModel):
     class_name: Optional[str] = None  # noqa: UP045
     use_standard_collections: bool = False
     use_schema_description: bool = False
+    use_type_alias: bool = False
     use_field_description: bool = False
     use_default_kwarg: bool = False
     reuse_model: bool = False
@@ -534,6 +535,7 @@ def main(args: Sequence[str] | None = None) -> Exit:  # noqa: PLR0911, PLR0912, 
             class_name=config.class_name,
             use_standard_collections=config.use_standard_collections,
             use_schema_description=config.use_schema_description,
+            use_type_alias=config.use_type_alias,
             use_field_description=config.use_field_description,
             use_default_kwarg=config.use_default_kwarg,
             reuse_model=config.reuse_model,

@@ -332,6 +332,7 @@ class Parser(ABC):
         use_standard_collections: bool = False,
         base_path: Path | None = None,
         use_schema_description: bool = False,
+        use_type_alias: bool = False,
         use_field_description: bool = False,
         use_default_kwarg: bool = False,
         reuse_model: bool = False,
@@ -415,6 +416,7 @@ class Parser(ABC):
         self.apply_default_values_for_required_fields: bool = apply_default_values_for_required_fields
         self.force_optional_for_required_fields: bool = force_optional_for_required_fields
         self.use_schema_description: bool = use_schema_description
+        self.use_type_alias: bool = use_type_alias
         self.use_field_description: bool = use_field_description
         self.use_default_kwarg: bool = use_default_kwarg
         self.reuse_model: bool = reuse_model

@@ -19,8 +19,8 @@ from datamodel_code_generator.model import DataModel, DataModelFieldBase
 from datamodel_code_generator.model import pydantic as pydantic_model
 from datamodel_code_generator.model.dataclass import DataClass
 from datamodel_code_generator.model.enum import Enum
-from datamodel_code_generator.model.scalar import DataTypeScalar
-from datamodel_code_generator.model.union import DataTypeUnion
+from datamodel_code_generator.model.scalar import DataTypeScalar, DataTypeScalarBackport
+from datamodel_code_generator.model.union import DataTypeUnion, DataTypeUnionBackport
 from datamodel_code_generator.parser.base import (
     DataType,
     Parser,
@@ -108,6 +108,7 @@ class GraphQLParser(Parser):
         use_standard_collections: bool = False,
         base_path: Path | None = None,
         use_schema_description: bool = False,
+        use_type_alias: bool = False,
         use_field_description: bool = False,
         use_default_kwarg: bool = False,
         reuse_model: bool = False,
@@ -185,6 +186,7 @@ class GraphQLParser(Parser):
             use_standard_collections=use_standard_collections,
             base_path=base_path,
             use_schema_description=use_schema_description,
+            use_type_alias=use_type_alias,
             use_field_description=use_field_description,
             use_default_kwarg=use_default_kwarg,
             reuse_model=reuse_model,
@@ -237,8 +239,12 @@ class GraphQLParser(Parser):
             parent_scoped_naming=parent_scoped_naming,
         )
 
-        self.data_model_scalar_type = data_model_scalar_type
-        self.data_model_union_type = data_model_union_type
+        if use_type_alias:
+            self.data_model_scalar_type = DataTypeScalarBackport
+            self.data_model_union_type = DataTypeUnionBackport
+        else:
+            self.data_model_scalar_type = data_model_scalar_type
+            self.data_model_union_type = data_model_union_type
         self.use_standard_collections = use_standard_collections
         self.use_union_operator = use_union_operator
 
