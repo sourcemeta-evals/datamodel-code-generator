@@ -3320,3 +3320,51 @@ def test_main_jsonschema_forwarding_reference_collapse_root(tmp_path: Path) -> N
     for path in main_modular_dir.rglob("*.py"):
         result = tmp_path.joinpath(path.relative_to(main_modular_dir)).read_text()
         assert result == path.read_text()
+
+
+@pytest.mark.parametrize(
+    ("output_model", "target_python_version", "expected_output"),
+    [
+        (
+            "pydantic_v2.BaseModel",
+            "3.12",
+            "use_type_alias_pydantic_v2_py312.py",
+        ),
+        (
+            "pydantic_v2.BaseModel",
+            "3.10",
+            "use_type_alias_pydantic_v2_py310.py",
+        ),
+        (
+            "pydantic.BaseModel",
+            "3.10",
+            "use_type_alias_pydantic_v1_py310.py",
+        ),
+        (
+            "pydantic.BaseModel",
+            "3.9",
+            "use_type_alias_pydantic_v1_py39.py",
+        ),
+    ],
+)
+@freeze_time(TIMESTAMP)
+def test_main_use_type_alias(
+    output_model: str, target_python_version: str, expected_output: str, tmp_path: Path
+) -> None:
+    """Test --use-type-alias flag generates type aliases instead of RootModel classes."""
+    output_file: Path = tmp_path / "output.py"
+    return_code: Exit = main([
+        "--input",
+        str(JSON_SCHEMA_DATA_PATH / "use_type_alias.json"),
+        "--output",
+        str(output_file),
+        "--input-file-type",
+        "jsonschema",
+        "--output-model-type",
+        output_model,
+        "--target-python-version",
+        target_python_version,
+        "--use-type-alias",
+    ])
+    assert return_code == Exit.OK
+    assert output_file.read_text(encoding="utf-8") == (EXPECTED_JSON_SCHEMA_PATH / expected_output).read_text()
