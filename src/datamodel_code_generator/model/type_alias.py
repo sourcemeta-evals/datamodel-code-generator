@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-from functools import partial
 from typing import TYPE_CHECKING, Any, ClassVar
 
 from datamodel_code_generator.format import PythonVersion
