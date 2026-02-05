@@ -1,0 +1,24 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "type": "object",
+  "properties": {
+    "name": {
+      "type": "string"
+    },
+    "user_id": {
+      "$ref": "#/definitions/UserId"
+    },
+    "total": {
+      "$ref": "#/definitions/Total"
+    }
+  },
+  "definitions": {
+    "UserId": {
+      "type": "string"
+    },
+    "Total": {
+      "type": "integer",
+      "minimum": 0
+    }
+  }
+}

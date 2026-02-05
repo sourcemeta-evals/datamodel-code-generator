@@ -1,0 +1,10 @@
+{#- Template for Python 3.9-3.11 with Pydantic v2 using TypeAliasType -#}
+{%- set field = fields[0] %}
+{%- if description %}
+# {{ description | replace('\n', '\n# ') }}
+{%- endif %}
+{%- if field.annotated %}
+{{ class_name }} = TypeAliasType('{{ class_name }}', {{ field.annotated }})
+{%- else %}
+{{ class_name }} = TypeAliasType('{{ class_name }}', {{ field.type_hint }})
+{%- endif %}

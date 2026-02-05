@@ -1,0 +1,6 @@
+{#- Template for Pydantic v1 or non-Pydantic output types using TypeAlias annotation -#}
+{%- set field = fields[0] %}
+{%- if description %}
+# {{ description | replace('\n', '\n# ') }}
+{%- endif %}
+{{ class_name }}: TypeAlias = {{ field.type_hint }}

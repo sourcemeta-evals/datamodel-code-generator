@@ -28,40 +28,60 @@ class DataModelSet(NamedTuple):
 def get_data_model_types(
     data_model_type: DataModelType,
     target_python_version: PythonVersion = DEFAULT_TARGET_PYTHON_VERSION,
+    *,
+    use_type_alias: bool = False,
 ) -> DataModelSet:
     from datamodel_code_generator import DataModelType  # noqa: PLC0415
 
     from . import dataclass, msgspec, pydantic, pydantic_v2, rootmodel, typed_dict  # noqa: PLC0415
+    from .type_alias import get_type_alias_model  # noqa: PLC0415
     from .types import DataTypeManager  # noqa: PLC0415
 
     if data_model_type == DataModelType.PydanticBaseModel:
+        root_model: type[DataModel]
+        if use_type_alias:
+            root_model = get_type_alias_model(target_python_version, is_pydantic_v2=False)
+        else:
+            root_model = pydantic.CustomRootType
         return DataModelSet(
             data_model=pydantic.BaseModel,
-            root_model=pydantic.CustomRootType,
+            root_model=root_model,
             field_model=pydantic.DataModelField,
             data_type_manager=pydantic.DataTypeManager,
             dump_resolve_reference_action=pydantic.dump_resolve_reference_action,
         )
     if data_model_type == DataModelType.PydanticV2BaseModel:
+        if use_type_alias:
+            root_model = get_type_alias_model(target_python_version, is_pydantic_v2=True)
+        else:
+            root_model = pydantic_v2.RootModel
         return DataModelSet(
             data_model=pydantic_v2.BaseModel,
-            root_model=pydantic_v2.RootModel,
+            root_model=root_model,
             field_model=pydantic_v2.DataModelField,
             data_type_manager=pydantic_v2.DataTypeManager,
             dump_resolve_reference_action=pydantic_v2.dump_resolve_reference_action,
         )
     if data_model_type == DataModelType.DataclassesDataclass:
+        if use_type_alias:
+            root_model = get_type_alias_model(target_python_version, is_pydantic_v2=False)
+        else:
+            root_model = rootmodel.RootModel
         return DataModelSet(
             data_model=dataclass.DataClass,
-            root_model=rootmodel.RootModel,
+            root_model=root_model,
             field_model=dataclass.DataModelField,
             data_type_manager=dataclass.DataTypeManager,
             dump_resolve_reference_action=None,
         )
     if data_model_type == DataModelType.TypingTypedDict:
+        if use_type_alias:
+            root_model = get_type_alias_model(target_python_version, is_pydantic_v2=False)
+        else:
+            root_model = rootmodel.RootModel
         return DataModelSet(
             data_model=typed_dict.TypedDict,
-            root_model=rootmodel.RootModel,
+            root_model=root_model,
             field_model=(
                 typed_dict.DataModelField
                 if target_python_version.has_typed_dict_non_required
@@ -71,9 +91,13 @@ def get_data_model_types(
             dump_resolve_reference_action=None,
         )
     if data_model_type == DataModelType.MsgspecStruct:
+        if use_type_alias:
+            root_model = get_type_alias_model(target_python_version, is_pydantic_v2=False)
+        else:
+            root_model = msgspec.RootModel
         return DataModelSet(
             data_model=msgspec.Struct,
-            root_model=msgspec.RootModel,
+            root_model=root_model,
             field_model=msgspec.DataModelField,
             data_type_manager=msgspec.DataTypeManager,
             dump_resolve_reference_action=None,
