@@ -1,6 +1,11 @@
 {%- set field = fields[0] %}
-{%- if field.annotated %}
-{{ class_name }} = {{ field.annotated }}
-{%- else %}
-{{ class_name }} = {{ field.type_hint }}
-{%- endif %}
+{%- set type_expr = field.annotated if field.annotated else field.type_hint %}
+{%- if type_alias_format == 'type_stmt' -%}
+type {{ class_name }} = {{ type_expr }}
+{%- elif type_alias_format == 'type_alias_type' -%}
+{{ class_name }} = TypeAliasType('{{ class_name }}', {{ type_expr }})
+{%- elif type_alias_format == 'annotation' -%}
+{{ class_name }}: TypeAlias = {{ type_expr }}
+{%- else -%}
+{{ class_name }} = {{ type_expr }}
+{%- endif -%}

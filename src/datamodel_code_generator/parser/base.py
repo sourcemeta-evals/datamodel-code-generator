@@ -363,6 +363,7 @@ class Parser(ABC):
         use_union_operator: bool = False,
         allow_responses_without_content: bool = False,
         collapse_root_models: bool = False,
+        use_type_alias: bool = False,
         special_field_name_prefix: str | None = None,
         remove_special_field_name_prefix: bool = False,
         capitalise_enum_members: bool = False,
@@ -426,6 +427,7 @@ class Parser(ABC):
         self.use_generic_container_types: bool = use_generic_container_types
         self.use_union_operator: bool = use_union_operator
         self.enable_faux_immutability: bool = enable_faux_immutability
+        self.use_type_alias: bool = use_type_alias
         self.custom_class_name_generator: Callable[[str], str] | None = custom_class_name_generator
         self.field_extra_keys: set[str] = field_extra_keys or set()
         self.field_extra_keys_without_x_prefix: set[str] = field_extra_keys_without_x_prefix or set()
@@ -459,6 +461,32 @@ class Parser(ABC):
 
         if enable_faux_immutability:
             self.extra_template_data[ALL_MODEL]["allow_mutation"] = False
+
+        # Configure type alias imports and template flags if enabled
+        if self.use_type_alias:
+            # Determine output kind by data_model_type
+            is_pydantic_v1 = data_model_type is pydantic_model.BaseModel
+            is_pydantic_v2 = data_model_type is pydantic_model_v2.BaseModel
+            # Decide alias form
+            if is_pydantic_v1:
+                type_alias_format = "annotation"  # Always use TypeAlias for pydantic v1
+            elif self.target_python_version in (PythonVersion.PY_312, PythonVersion.PY_313, PythonVersion.PY_314):
+                type_alias_format = "type_stmt"
+            else:
+                type_alias_format = "type_alias_type" if is_pydantic_v2 else "annotation"
+
+            # Set global template data
+            self.extra_template_data[ALL_MODEL]["type_alias_format"] = type_alias_format
+
+            # Add required imports
+            if type_alias_format == "annotation":
+                # For Python 3.9, import from typing_extensions; otherwise from typing
+                if self.target_python_version == PythonVersion.PY_39:
+                    self.imports.append(Import.from_full_path("typing_extensions.TypeAlias"))
+                else:
+                    self.imports.append(Import.from_full_path("typing.TypeAlias"))
+            elif type_alias_format == "type_alias_type":
+                self.imports.append(Import.from_full_path("typing_extensions.TypeAliasType"))
 
         self.model_resolver = ModelResolver(
             base_url=source.geturl() if isinstance(source, ParseResult) else None,

@@ -5,7 +5,15 @@
 {%- endif -%}
 {%- endmacro -%}
 
-
+{%- set field = fields[0] if fields else None %}
+{%- set type_expr = field.annotated if field and field.annotated else (field.type_hint if field else None) %}
+{%- if type_alias_format == 'type_stmt' -%}
+type {{ class_name }} = {{ type_expr }}
+{%- elif type_alias_format == 'type_alias_type' -%}
+{{ class_name }} = TypeAliasType('{{ class_name }}', {{ type_expr }})
+{%- elif type_alias_format == 'annotation' -%}
+{{ class_name }}: TypeAlias = {{ type_expr }}
+{%- else -%}
 {% for decorator in decorators -%}
 {{ decorator }}
 {% endfor -%}
@@ -24,7 +32,6 @@ class {{ class_name }}({{ base_class }}{%- if fields -%}[{{get_type_hint(fields)
 {%- if not fields and not description %}
     pass
 {%- else %}
-    {%- set field = fields[0] %}
     {%- if not field.annotated and field.field %}
     root: {{ field.type_hint }} = {{ field.field }}
     {%- else %}
@@ -42,4 +49,5 @@ class {{ class_name }}({{ base_class }}{%- if fields -%}[{{get_type_hint(fields)
     {{ field.docstring | indent(4) }}
     """
     {%- endif %}
+{%- endif %}
 {%- endif %}
