@@ -1547,6 +1547,78 @@ def test_main_collapse_root_models(tmp_path: Path) -> None:
 
 
 @freeze_time("2019-07-26")
+def test_main_use_type_alias_pydantic_v2_py312(tmp_path: Path) -> None:
+    output_file: Path = tmp_path / "output.py"
+    return_code: Exit = main([
+        "--input",
+        str(OPEN_API_DATA_PATH / "type_alias_test.json"),
+        "--output",
+        str(output_file),
+        "--output-model-type",
+        "pydantic_v2.BaseModel",
+        "--target-python-version",
+        "3.12",
+        "--use-type-alias",
+    ])
+    assert return_code == Exit.OK
+    assert output_file.read_text(encoding="utf-8") == (EXPECTED_OPENAPI_PATH / "use_type_alias_pydantic_v2_py312.py").read_text()
+
+
+@freeze_time("2019-07-26")
+def test_main_use_type_alias_pydantic_v2_py310(tmp_path: Path) -> None:
+    output_file: Path = tmp_path / "output.py"
+    return_code: Exit = main([
+        "--input",
+        str(OPEN_API_DATA_PATH / "type_alias_test.json"),
+        "--output",
+        str(output_file),
+        "--output-model-type",
+        "pydantic_v2.BaseModel",
+        "--target-python-version",
+        "3.10",
+        "--use-type-alias",
+    ])
+    assert return_code == Exit.OK
+    assert output_file.read_text(encoding="utf-8") == (EXPECTED_OPENAPI_PATH / "use_type_alias_pydantic_v2_py310.py").read_text()
+
+
+@freeze_time("2019-07-26")
+def test_main_use_type_alias_pydantic_v1_py310(tmp_path: Path) -> None:
+    output_file: Path = tmp_path / "output.py"
+    return_code: Exit = main([
+        "--input",
+        str(OPEN_API_DATA_PATH / "type_alias_test.json"),
+        "--output",
+        str(output_file),
+        "--output-model-type",
+        "pydantic.BaseModel",
+        "--target-python-version",
+        "3.10",
+        "--use-type-alias",
+    ])
+    assert return_code == Exit.OK
+    assert output_file.read_text(encoding="utf-8") == (EXPECTED_OPENAPI_PATH / "use_type_alias_pydantic_v1_py310.py").read_text()
+
+
+@freeze_time("2019-07-26")
+def test_main_use_type_alias_pydantic_v1_py39(tmp_path: Path) -> None:
+    output_file: Path = tmp_path / "output.py"
+    return_code: Exit = main([
+        "--input",
+        str(OPEN_API_DATA_PATH / "type_alias_test.json"),
+        "--output",
+        str(output_file),
+        "--output-model-type",
+        "pydantic.BaseModel",
+        "--target-python-version",
+        "3.9",
+        "--use-type-alias",
+    ])
+    assert return_code == Exit.OK
+    assert output_file.read_text(encoding="utf-8") == (EXPECTED_OPENAPI_PATH / "use_type_alias_pydantic_v1_py39.py").read_text()
+
+
+@freeze_time("2019-07-26")
 def test_main_collapse_root_models_field_constraints(tmp_path: Path) -> None:
     output_file: Path = tmp_path / "output.py"
     return_code: Exit = main([
