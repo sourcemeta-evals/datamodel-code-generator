@@ -265,3 +265,84 @@ def test_filename_with_various_control_characters(tmp_path: Path) -> None:
         ), f"System call found for {test_name}"
 
         compile(generated_content, str(output_path), "exec")
+
+
+@freeze_time(TIMESTAMP)
+def test_use_type_alias_pydantic_v2_py312(tmp_path: Path) -> None:
+    """Test --use-type-alias with Pydantic v2 and Python 3.12+ (native type statement)."""
+    output_file = tmp_path / "output.py"
+    generate(
+        DATA_PATH / "jsonschema" / "type_alias_test.json",
+        input_file_type=InputFileType.JsonSchema,
+        output=output_file,
+        output_model_type=DataModelType.PydanticV2BaseModel,
+        target_python_version=PythonVersion.PY_312,
+        use_type_alias=True,
+    )
+    assert output_file.read_text() == (EXPECTED_MAIN_PATH / "type_alias" / "pydantic_v2_py312.py").read_text()
+
+
+@freeze_time(TIMESTAMP)
+def test_use_type_alias_pydantic_v2_py39(tmp_path: Path) -> None:
+    """Test --use-type-alias with Pydantic v2 and Python 3.9 (TypeAliasType)."""
+    output_file = tmp_path / "output.py"
+    generate(
+        DATA_PATH / "jsonschema" / "type_alias_test.json",
+        input_file_type=InputFileType.JsonSchema,
+        output=output_file,
+        output_model_type=DataModelType.PydanticV2BaseModel,
+        target_python_version=PythonVersion.PY_39,
+        use_type_alias=True,
+    )
+    assert output_file.read_text() == (EXPECTED_MAIN_PATH / "type_alias" / "pydantic_v2_py39.py").read_text()
+
+
+@freeze_time(TIMESTAMP)
+def test_use_type_alias_pydantic_v1_py39(tmp_path: Path) -> None:
+    """Test --use-type-alias with Pydantic v1 and Python 3.9 (TypeAlias from typing_extensions)."""
+    output_file = tmp_path / "output.py"
+    generate(
+        DATA_PATH / "jsonschema" / "type_alias_test.json",
+        input_file_type=InputFileType.JsonSchema,
+        output=output_file,
+        output_model_type=DataModelType.PydanticBaseModel,
+        target_python_version=PythonVersion.PY_39,
+        use_type_alias=True,
+    )
+    assert output_file.read_text() == (EXPECTED_MAIN_PATH / "type_alias" / "pydantic_v1_py39.py").read_text()
+
+
+@freeze_time(TIMESTAMP)
+def test_use_type_alias_pydantic_v1_py310(tmp_path: Path) -> None:
+    """Test --use-type-alias with Pydantic v1 and Python 3.10 (TypeAlias from typing)."""
+    output_file = tmp_path / "output.py"
+    generate(
+        DATA_PATH / "jsonschema" / "type_alias_test.json",
+        input_file_type=InputFileType.JsonSchema,
+        output=output_file,
+        output_model_type=DataModelType.PydanticBaseModel,
+        target_python_version=PythonVersion.PY_310,
+        use_type_alias=True,
+    )
+    assert output_file.read_text() == (EXPECTED_MAIN_PATH / "type_alias" / "pydantic_v1_py310.py").read_text()
+
+
+@freeze_time(TIMESTAMP)
+def test_use_type_alias_command_line(tmp_path: Path) -> None:
+    """Test --use-type-alias flag via command line."""
+    output_file: Path = tmp_path / "output.py"
+    return_code: Exit = main([
+        "--input",
+        str(DATA_PATH / "jsonschema" / "type_alias_test.json"),
+        "--output",
+        str(output_file),
+        "--input-file-type",
+        "jsonschema",
+        "--output-model-type",
+        "pydantic_v2.BaseModel",
+        "--target-python-version",
+        "3.12",
+        "--use-type-alias",
+    ])
+    assert return_code == Exit.OK
+    assert output_file.read_text(encoding="utf-8") == (EXPECTED_MAIN_PATH / "type_alias" / "pydantic_v2_py312.py").read_text()

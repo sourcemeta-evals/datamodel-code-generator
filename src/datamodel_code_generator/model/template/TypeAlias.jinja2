@@ -1,0 +1,23 @@
+{%- set field = fields[0] %}
+{%- if type_alias_style == 'type_statement' %}
+{#- Python 3.12+ native type statement -#}
+{%- if field.annotated %}
+type {{ class_name }} = {{ field.annotated }}
+{%- else %}
+type {{ class_name }} = {{ field.type_hint }}
+{%- endif %}
+{%- elif type_alias_style == 'type_alias_type' %}
+{#- TypeAliasType for Pydantic v2 + Python 3.9-3.11 -#}
+{%- if field.annotated %}
+{{ class_name }} = TypeAliasType('{{ class_name }}', {{ field.annotated }})
+{%- else %}
+{{ class_name }} = TypeAliasType('{{ class_name }}', {{ field.type_hint }})
+{%- endif %}
+{%- else %}
+{#- TypeAlias annotation for Pydantic v1 and non-Pydantic output types -#}
+{%- if field.annotated %}
+{{ class_name }}: TypeAlias = {{ field.annotated }}
+{%- else %}
+{{ class_name }}: TypeAlias = {{ field.type_hint }}
+{%- endif %}
+{%- endif %}
