@@ -576,6 +576,7 @@ class Parser(ABC):
         self.default_field_extras: dict[str, Any] | None = default_field_extras
         self.formatters: list[Formatter] = formatters
         self.type_mappings: dict[tuple[str, str], str] = Parser._parse_type_mappings(type_mappings)
+        self._schema_discriminators: dict[str, dict[str, Any]] = {}
 
     @staticmethod
     def _parse_type_mappings(type_mappings: list[str] | None) -> dict[tuple[str, str], str]:
@@ -840,6 +841,64 @@ class Parser(ABC):
                     ),
                 )
                 models.remove(model)
+
+    def __apply_schema_level_discriminator_type(
+        self,
+        models: list[DataModel],
+        imports: Imports,
+    ) -> None:
+        if not self._schema_discriminators:
+            return
+        for model in models:
+            for base_class in model.base_classes:
+                if not base_class.reference:
+                    continue
+                base_path = base_class.reference.path
+                disc_info = self._schema_discriminators.get(base_path)
+                if not disc_info:
+                    continue
+                property_name = disc_info["propertyName"]
+                mapping = disc_info["mapping"]
+                field_name, alias = self.model_resolver.get_valid_field_name_and_alias(
+                    field_name=property_name
+                )
+                type_names: list[str] = []
+                for disc_value, ref_path in mapping.items():
+                    ref_fragment = ref_path.split("#/")[-1]
+                    model_fragment = model.path.split("#/")[-1]
+                    if ref_fragment == model_fragment:
+                        type_names.append(disc_value)
+                        break
+                if not type_names:
+                    continue
+                has_one_literal = False
+                for disc_field in model.fields:
+                    if field_name not in {disc_field.original_name, disc_field.name}:
+                        continue
+                    literals = disc_field.data_type.literals
+                    if len(literals) == 1 and literals[0] == type_names[0]:
+                        has_one_literal = True
+                        break
+                    for field_data_type in disc_field.data_type.all_data_types:
+                        if field_data_type.reference:
+                            field_data_type.remove_reference()
+                    disc_field.data_type = self.data_type(literals=type_names)
+                    disc_field.data_type.parent = disc_field
+                    disc_field.required = True
+                    imports.append(disc_field.imports)
+                    has_one_literal = True
+                if not has_one_literal:
+                    model.fields.append(
+                        self.data_model_field_type(
+                            name=field_name,
+                            data_type=self.data_type(literals=type_names),
+                            required=True,
+                            alias=alias,
+                        )
+                    )
+                has_imported_literal = any(import_ == IMPORT_LITERAL for import_ in imports)
+                if has_imported_literal:
+                    imports.append(IMPORT_LITERAL)
 
     def __apply_discriminator_type(  # noqa: PLR0912, PLR0915
         self,
@@ -1503,6 +1562,7 @@ class Parser(ABC):
             self.__set_default_enum_member(models)
             self.__sort_models(models, imports)
             self.__change_field_name(models)
+            self.__apply_schema_level_discriminator_type(models, imports)
             self.__apply_discriminator_type(models, imports)
             self.__set_one_literal_on_default(models)
 

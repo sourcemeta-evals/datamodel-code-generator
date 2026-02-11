@@ -1764,6 +1764,19 @@ class JsonSchemaParser(Parser):
                 self.parse_object(name, obj, path)  # pragma: no cover
         elif obj.properties:
             self.parse_object(name, obj, path)
+            if (
+                obj.discriminator
+                and isinstance(obj.discriminator, Discriminator)
+                and obj.discriminator.mapping
+                and not obj.oneOf
+                and not obj.anyOf
+            ):
+                ref = self.model_resolver.get(path)
+                if ref:
+                    self._schema_discriminators[ref.path] = {
+                        "propertyName": obj.discriminator.propertyName,
+                        "mapping": obj.discriminator.mapping,
+                    }
         elif obj.patternProperties:
             self.parse_root_type(name, obj, path)
         elif obj.type == "object":
