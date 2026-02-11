@@ -1449,6 +1449,10 @@ def test_main_use_default_kwarg(output_file: Path) -> None:
             "discriminator_without_mapping.yaml",
             "without_mapping.py",
         ),
+        (
+            "discriminator_allof.yaml",
+            "allof.py",
+        ),
     ],
 )
 def test_main_openapi_discriminator(input_: str, output: str, output_file: Path) -> None:
