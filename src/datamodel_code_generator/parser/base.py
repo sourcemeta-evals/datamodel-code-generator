@@ -576,6 +576,7 @@ class Parser(ABC):
         self.default_field_extras: dict[str, Any] | None = default_field_extras
         self.formatters: list[Formatter] = formatters
         self.type_mappings: dict[tuple[str, str], str] = Parser._parse_type_mappings(type_mappings)
+        self._discriminator_schema_info: dict[str, tuple[str, dict[str, str]]] = {}
 
     @staticmethod
     def _parse_type_mappings(type_mappings: list[str] | None) -> dict[tuple[str, str], str]:
@@ -950,6 +951,82 @@ class Parser(ABC):
                     has_imported_literal = any(import_ == IMPORT_LITERAL for import_ in imports)
                     if has_imported_literal:  # pragma: no cover
                         imports.append(IMPORT_LITERAL)
+
+    def __apply_allof_discriminator_type(
+        self,
+        models: list[DataModel],
+        imports: Imports,
+    ) -> None:
+        if not self._discriminator_schema_info:
+            return
+        for model in models:
+            disc_info = self._discriminator_schema_info.get(model.path)
+            if not disc_info:
+                continue
+            property_name, mapping = disc_info
+            field_name, alias = self.model_resolver.get_valid_field_name_and_alias(
+                field_name=property_name
+            )
+
+            for child_model in models:
+                if child_model is model:
+                    continue
+                is_child = any(
+                    bc.reference and bc.reference.path == model.path
+                    for bc in child_model.base_classes
+                )
+                if not is_child:
+                    continue
+
+                type_names: list[str] = []
+                child_path_suffix = child_model.path.split("#/")[-1]
+                for disc_name, disc_ref in mapping.items():
+                    ref_suffix = disc_ref.split("#/")[-1]
+                    if child_path_suffix == ref_suffix:
+                        type_names.append(disc_name)
+                        break
+
+                if not type_names:
+                    for bc in child_model.base_classes:
+                        if not bc.reference:
+                            continue
+                        bc_path_suffix = bc.reference.path.split("#/")[-1]
+                        for disc_name, disc_ref in mapping.items():
+                            ref_suffix = disc_ref.split("#/")[-1]
+                            if bc_path_suffix == ref_suffix:
+                                type_names.append(disc_name)
+                                break
+                        if type_names:
+                            break
+
+                if not type_names:
+                    continue
+
+                has_one_literal = False
+                for child_field in child_model.fields:
+                    if field_name not in {child_field.original_name, child_field.name}:
+                        continue
+                    literals = child_field.data_type.literals
+                    if len(literals) == 1 and literals[0] == type_names[0]:
+                        has_one_literal = True
+                        break
+                    for field_data_type in child_field.data_type.all_data_types:
+                        if field_data_type.reference:
+                            field_data_type.remove_reference()
+                    child_field.data_type = self.data_type(literals=type_names)
+                    child_field.data_type.parent = child_field
+                    child_field.required = True
+                    imports.append(child_field.imports)
+                    has_one_literal = True
+                if not has_one_literal:
+                    new_field = self.data_model_field_type(
+                        name=field_name,
+                        data_type=self.data_type(literals=type_names),
+                        required=True,
+                        alias=alias,
+                    )
+                    child_model.fields.append(new_field)
+                    imports.append(new_field.imports)
 
     @classmethod
     def _create_set_from_list(cls, data_type: DataType) -> DataType | None:
@@ -1504,6 +1581,7 @@ class Parser(ABC):
             self.__sort_models(models, imports)
             self.__change_field_name(models)
             self.__apply_discriminator_type(models, imports)
+            self.__apply_allof_discriminator_type(models, imports)
             self.__set_one_literal_on_default(models)
 
             processed_models.append(Processed(module, models, init, imports, scoped_model_resolver))
