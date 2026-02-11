@@ -1385,6 +1385,50 @@ class JsonSchemaParser(Parser):
         self.results.append(data_model_root)
         return self.data_type(reference=reference)
 
+    def _parse_discriminator_allof_union(
+        self,
+        name: str,
+        obj: JsonSchemaObject,
+        path: list[str],
+    ) -> None:
+        """Create a discriminated union root model from a schema's discriminator mapping.
+
+        When a schema has a discriminator with mapping but no oneOf/anyOf, the mapping
+        entries are used to synthesize a discriminated union. This enables the
+        __apply_discriminator_type post-processing to set Literal types on child models.
+        """
+        if not isinstance(obj.discriminator, Discriminator) or not obj.discriminator.mapping:
+            return
+        data_types: list[DataType] = []
+        for ref in obj.discriminator.mapping.values():
+            data_types.append(self.get_ref_data_type(ref))
+        if not data_types:
+            return
+        data_type = self.data_type(data_types=data_types)
+        union_path = get_special_path("discriminator_union", path)
+        reference = self.model_resolver.add(union_path, name, loaded=True, class_name=True)
+        extras = self.get_field_extras(obj)
+        field = self.data_model_field_type(
+            data_type=data_type,
+            required=True,
+            extras=extras,
+            use_annotated=self.use_annotated,
+            use_field_description=self.use_field_description,
+            use_inline_field_description=self.use_inline_field_description,
+            original_name=None,
+            has_default=False,
+        )
+        data_model_root = self.data_model_root_type(
+            reference=reference,
+            fields=[field],
+            custom_base_class=obj.custom_base_path or self.base_class,
+            custom_template_dir=self.custom_template_dir,
+            extra_template_data=self.extra_template_data,
+            path=self.current_source_path,
+            treat_dot_as_module=self.treat_dot_as_module,
+        )
+        self.results.append(data_model_root)
+
     def parse_root_type(  # noqa: PLR0912
         self,
         name: str,
@@ -1764,6 +1808,14 @@ class JsonSchemaParser(Parser):
                 self.parse_object(name, obj, path)  # pragma: no cover
         elif obj.properties:
             self.parse_object(name, obj, path)
+            if (
+                obj.discriminator
+                and isinstance(obj.discriminator, Discriminator)
+                and obj.discriminator.mapping
+                and not obj.oneOf
+                and not obj.anyOf
+            ):
+                self._parse_discriminator_allof_union(name, obj, path)
         elif obj.patternProperties:
             self.parse_root_type(name, obj, path)
         elif obj.type == "object":
