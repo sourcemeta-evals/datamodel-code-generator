@@ -619,6 +619,7 @@ class JsonSchemaParser(Parser):
         self._root_id: Optional[str] = None  # noqa: UP045
         self._root_id_base_path: Optional[str] = None  # noqa: UP045
         self.reserved_refs: defaultdict[tuple[str, ...], set[str]] = defaultdict(set)
+        self._allof_discriminator_mappings: list[tuple[str, dict[str, str]]] = []
         self.field_keys: set[str] = {
             *DEFAULT_FIELD_KEYS,
             *self.field_extra_keys,
@@ -1772,6 +1773,15 @@ class JsonSchemaParser(Parser):
             self.parse_enum(name, obj, path)
         else:
             self.parse_root_type(name, obj, path)
+        if (
+            isinstance(obj.discriminator, Discriminator)
+            and obj.discriminator.mapping
+            and not obj.oneOf
+            and not obj.anyOf
+        ):
+            self._allof_discriminator_mappings.append(
+                (obj.discriminator.propertyName, obj.discriminator.mapping)
+            )
         self.parse_ref(obj, path)
 
     def _get_context_source_path_parts(self) -> Iterator[tuple[Source, list[str]]]:

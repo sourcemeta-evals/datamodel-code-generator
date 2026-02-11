@@ -951,6 +951,65 @@ class Parser(ABC):
                     if has_imported_literal:  # pragma: no cover
                         imports.append(IMPORT_LITERAL)
 
+    def __apply_allof_discriminator_type(
+        self,
+        models: list[DataModel],
+        imports: Imports,
+    ) -> None:
+        if not hasattr(self, "_allof_discriminator_mappings"):
+            return
+        for property_name, mapping in self._allof_discriminator_mappings:
+            field_name, alias = self.model_resolver.get_valid_field_name_and_alias(field_name=property_name)
+            for discriminator_value, child_ref in mapping.items():
+                child_ref_suffix = child_ref.split("#/")[-1] if "#/" in child_ref else child_ref.split("/")[-1]
+                child_model: DataModel | None = None
+                for model in models:
+                    if not model.reference:
+                        continue
+                    model_path_suffix = model.reference.path.split("#/")[-1] if "#/" in model.reference.path else model.reference.path.split("/")[-1]
+                    if model_path_suffix == child_ref_suffix:
+                        child_model = model
+                        break
+                if child_model is None:
+                    continue
+                if not isinstance(
+                    child_model,
+                    (
+                        pydantic_model.BaseModel,
+                        pydantic_model_v2.BaseModel,
+                        dataclass_model.DataClass,
+                        msgspec_model.Struct,
+                    ),
+                ):
+                    continue
+                has_field = False
+                for discriminator_field in child_model.fields:
+                    if field_name not in {discriminator_field.original_name, discriminator_field.name}:
+                        continue
+                    literals = discriminator_field.data_type.literals
+                    if len(literals) == 1 and literals[0] == discriminator_value:
+                        has_field = True
+                        break
+                    for field_data_type in discriminator_field.data_type.all_data_types:
+                        if field_data_type.reference:
+                            field_data_type.remove_reference()
+                    discriminator_field.data_type = self.data_type(literals=[discriminator_value])
+                    discriminator_field.data_type.parent = discriminator_field
+                    discriminator_field.required = True
+                    imports.append(discriminator_field.imports)
+                    has_field = True
+                    break
+                if not has_field:
+                    child_model.fields.append(
+                        self.data_model_field_type(
+                            name=field_name,
+                            data_type=self.data_type(literals=[discriminator_value]),
+                            required=True,
+                            alias=alias,
+                        )
+                    )
+                    imports.append(IMPORT_LITERAL)
+
     @classmethod
     def _create_set_from_list(cls, data_type: DataType) -> DataType | None:
         if data_type.is_list:
@@ -1504,6 +1563,7 @@ class Parser(ABC):
             self.__sort_models(models, imports)
             self.__change_field_name(models)
             self.__apply_discriminator_type(models, imports)
+            self.__apply_allof_discriminator_type(models, imports)
             self.__set_one_literal_on_default(models)
 
             processed_models.append(Processed(module, models, init, imports, scoped_model_resolver))
