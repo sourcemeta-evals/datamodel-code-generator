@@ -1476,6 +1476,15 @@ class Parser(ABC, Generic[ParserConfigT, SchemaFeaturesT]):
                 )
                 discriminator["propertyName"] = field_name
                 mapping = discriminator.get("mapping", {})
+                # Skip discriminator if any variant lacks a reference,
+                # which can happen with unresolved recursive refs
+                all_have_refs = all(
+                    dt.reference is not None for dt in field.data_type.data_types
+                )
+                if not all_have_refs:
+                    field.extras.pop("discriminator", None)
+                    field.data_type.discriminator = None
+                    continue
                 for data_type in field.data_type.data_types:
                     if not data_type.reference:  # pragma: no cover
                         continue
@@ -1995,11 +2004,17 @@ class Parser(ABC, Generic[ParserConfigT, SchemaFeaturesT]):
                             )
                         discriminator = root_type_field.extras.get("discriminator")
                         if discriminator and isinstance(root_type_field, pydantic_model.DataModelField):
-                            prop_name = (
-                                discriminator.get("propertyName") if isinstance(discriminator, dict) else discriminator
+                            # Skip discriminator if any variant has no reference
+                            all_have_refs = all(
+                                dt.reference is not None
+                                for dt in copied_data_type.data_types
                             )
-                            if self._is_pydantic_v2_model():
-                                copied_data_type.discriminator = prop_name
+                            if all_have_refs:
+                                prop_name = (
+                                    discriminator.get("propertyName") if isinstance(discriminator, dict) else discriminator
+                                )
+                                if self._is_pydantic_v2_model():
+                                    copied_data_type.discriminator = prop_name
                         assert isinstance(data_type.parent, DataType)
                         data_type.parent.data_types.remove(data_type)
                         data_type.parent.data_types.append(copied_data_type)
