@@ -1453,14 +1453,17 @@ class Parser(ABC, Generic[ParserConfigT, SchemaFeaturesT]):
                 )
                 discriminator["propertyName"] = field_name
                 mapping = discriminator.get("mapping", {})
+                has_unsupported_variant = False
                 for data_type in field.data_type.data_types:
-                    if not data_type.reference:  # pragma: no cover
+                    if not data_type.reference:
+                        has_unsupported_variant = True
                         continue
                     discriminator_model = data_type.reference.source
 
                     if (
                         not isinstance(discriminator_model, DataModel) or not discriminator_model.SUPPORTS_DISCRIMINATOR
                     ):  # pragma: no cover
+                        has_unsupported_variant = True
                         continue
 
                     type_names: list[str] = []
@@ -1620,6 +1623,8 @@ class Parser(ABC, Generic[ParserConfigT, SchemaFeaturesT]):
                                 use_serialization_alias=self.use_serialization_alias,
                             )
                         )
+                if has_unsupported_variant:
+                    field.extras.pop("discriminator", None)
             has_imported_literal = any(import_ == IMPORT_LITERAL for import_ in imports)
             if has_imported_literal:  # pragma: no cover
                 imports.append(IMPORT_LITERAL)
