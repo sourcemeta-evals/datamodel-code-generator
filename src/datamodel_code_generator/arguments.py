@@ -197,6 +197,12 @@ model_options.add_argument(
     default=None,
 )
 model_options.add_argument(
+    "--use-type-alias",
+    help="Generate type aliases instead of RootModel classes for root types",
+    action="store_true",
+    default=None,
+)
+model_options.add_argument(
     "--use-pendulum",
     help="use pendulum instead of datetime",
     action="store_true",
