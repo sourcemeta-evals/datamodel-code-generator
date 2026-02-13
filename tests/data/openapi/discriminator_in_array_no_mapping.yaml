@@ -1,0 +1,36 @@
+openapi: "3.0.0"
+info:
+  title: Test
+  version: "1.0"
+paths: {}
+components:
+  schemas:
+    IntegrationType:
+      type: string
+      enum:
+        - wandb
+    WandbIntegration:
+      type: object
+      required:
+        - type
+        - wandb
+      properties:
+        type:
+          $ref: '#/components/schemas/IntegrationType'
+        wandb:
+          type: object
+          properties:
+            project:
+              type: string
+    FineTuningJob:
+      type: object
+      required:
+        - integrations
+      properties:
+        integrations:
+          type: array
+          items:
+            oneOf:
+              - $ref: '#/components/schemas/WandbIntegration'
+            discriminator:
+              propertyName: type
