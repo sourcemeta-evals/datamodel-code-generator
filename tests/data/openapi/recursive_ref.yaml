@@ -1,0 +1,47 @@
+openapi: "3.1.0"
+info:
+  version: 0.0.1
+  title: Test recursive ref
+paths: {}
+components:
+  schemas:
+    ComparisonFilter:
+      type: object
+      additionalProperties: false
+      properties:
+        type:
+          type: string
+          enum:
+            - eq
+            - ne
+        key:
+          type: string
+        value:
+          type: string
+      required:
+        - type
+        - key
+        - value
+    CompoundFilter:
+      "$recursiveAnchor": true
+      type: object
+      additionalProperties: false
+      properties:
+        type:
+          type: string
+          enum:
+            - and
+            - or
+        filters:
+          type: array
+          items:
+            oneOf:
+              - "$ref": "#/components/schemas/ComparisonFilter"
+              - "$recursiveRef": "#"
+      required:
+        - type
+        - filters
+    Filters:
+      anyOf:
+        - "$ref": "#/components/schemas/ComparisonFilter"
+        - "$ref": "#/components/schemas/CompoundFilter"

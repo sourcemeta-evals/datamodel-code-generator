@@ -1,0 +1,27 @@
+openapi: "3.1.0"
+info:
+  version: 0.0.1
+  title: Test dynamic ref
+paths: {}
+components:
+  schemas:
+    StringNode:
+      type: object
+      properties:
+        value:
+          type: string
+      required:
+        - value
+    TreeNode:
+      "$dynamicAnchor": tree
+      type: object
+      properties:
+        data:
+          type: string
+        children:
+          type: array
+          items:
+            "$dynamicRef": "#tree"
+      required:
+        - data
+        - children

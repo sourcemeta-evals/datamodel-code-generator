@@ -4964,3 +4964,33 @@ def test_main_openapi_allof_array_ref_no_duplicate_model(output_file: Path) -> N
             "--use-schema-description",
         ],
     )
+
+
+def test_main_openapi_recursive_ref(output_file: Path) -> None:
+    """Test $recursiveRef/$recursiveAnchor resolution (JSON Schema 2019-09)."""
+    run_main_and_assert(
+        input_path=OPEN_API_DATA_PATH / "recursive_ref.yaml",
+        output_path=output_file,
+        input_file_type="openapi",
+        assert_func=assert_file_content,
+        expected_file="recursive_ref.py",
+        extra_args=[
+            "--output-model-type",
+            "pydantic_v2.BaseModel",
+        ],
+    )
+
+
+def test_main_openapi_dynamic_ref(output_file: Path) -> None:
+    """Test $dynamicRef/$dynamicAnchor resolution (JSON Schema 2020-12)."""
+    run_main_and_assert(
+        input_path=OPEN_API_DATA_PATH / "dynamic_ref.yaml",
+        output_path=output_file,
+        input_file_type="openapi",
+        assert_func=assert_file_content,
+        expected_file="dynamic_ref.py",
+        extra_args=[
+            "--output-model-type",
+            "pydantic_v2.BaseModel",
+        ],
+    )
