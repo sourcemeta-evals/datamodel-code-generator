@@ -16,7 +16,7 @@ from datamodel_code_generator import OpenAPIScope, PythonVersionMin
 from datamodel_code_generator.model import DataModelFieldBase
 from datamodel_code_generator.model.pydantic import DataModelField
 from datamodel_code_generator.parser.base import dump_templates
-from datamodel_code_generator.parser.jsonschema import JsonSchemaObject
+from datamodel_code_generator.parser.jsonschema import JsonSchemaObject, _replace_recursive_refs
 from datamodel_code_generator.parser.openapi import (
     MediaObject,
     OpenAPIParser,
@@ -1037,3 +1037,60 @@ def test_openapi_parser_with_request_bodies_scope_body_ref() -> None:
     result = parser.parse()
     assert "CreatePet" in result or "BasePet" in result
     assert "name: Optional[str]" in result
+
+
+def test_replace_recursive_refs_recursive_ref() -> None:
+    """Test _replace_recursive_refs replaces $recursiveRef with $ref."""
+    schema: dict[str, Any] = {
+        "type": "object",
+        "$recursiveAnchor": True,
+        "properties": {
+            "filters": {
+                "type": "array",
+                "items": {
+                    "oneOf": [
+                        {"$ref": "#/components/schemas/Other"},
+                        {"$recursiveRef": "#"},
+                    ]
+                },
+            }
+        },
+    }
+    _replace_recursive_refs(schema, "#/components/schemas/CompoundFilter")
+    items = schema["properties"]["filters"]["items"]["oneOf"]
+    assert items[0] == {"$ref": "#/components/schemas/Other"}
+    assert items[1] == {"$ref": "#/components/schemas/CompoundFilter"}
+    assert "$recursiveRef" not in items[1]
+
+
+def test_replace_recursive_refs_dynamic_ref() -> None:
+    """Test _replace_recursive_refs replaces $dynamicRef with $ref."""
+    schema: dict[str, Any] = {
+        "type": "object",
+        "$dynamicAnchor": True,
+        "properties": {
+            "children": {
+                "type": "array",
+                "items": {"$dynamicRef": "#"},
+            }
+        },
+    }
+    _replace_recursive_refs(schema, "#/$defs/TreeNode")
+    items = schema["properties"]["children"]["items"]
+    assert items == {"$ref": "#/$defs/TreeNode"}
+    assert "$dynamicRef" not in items
+
+
+def test_replace_recursive_refs_no_match() -> None:
+    """Test _replace_recursive_refs leaves non-matching refs unchanged."""
+    schema: dict[str, Any] = {
+        "type": "object",
+        "properties": {
+            "ref": {"$ref": "#/components/schemas/Other"},
+            "value": {"type": "string"},
+        },
+    }
+    original = dict(schema)
+    _replace_recursive_refs(schema, "#/components/schemas/Self")
+    assert schema["properties"]["ref"] == {"$ref": "#/components/schemas/Other"}
+    assert schema["properties"]["value"] == {"type": "string"}

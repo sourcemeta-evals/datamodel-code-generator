@@ -1,0 +1,52 @@
+openapi: "3.1.0"
+info:
+  version: 1.0.0
+  title: DynamicRef Test
+  description: Test $dynamicRef/$dynamicAnchor (JSON Schema 2020-12)
+components:
+  schemas:
+    ComparisonFilter:
+      type: object
+      required:
+        - type
+        - key
+        - value
+      properties:
+        type:
+          type: string
+          enum:
+            - eq
+            - ne
+        key:
+          type: string
+        value:
+          type: string
+      additionalProperties: false
+
+    CompoundFilter:
+      type: object
+      required:
+        - type
+        - filters
+      $dynamicAnchor: true
+      properties:
+        type:
+          type: string
+          enum:
+            - and
+            - or
+        filters:
+          type: array
+          items:
+            oneOf:
+              - $ref: '#/components/schemas/ComparisonFilter'
+              - $dynamicRef: '#'
+      additionalProperties: false
+
+    FilterRequest:
+      type: object
+      properties:
+        filters:
+          oneOf:
+            - $ref: '#/components/schemas/ComparisonFilter'
+            - $ref: '#/components/schemas/CompoundFilter'
