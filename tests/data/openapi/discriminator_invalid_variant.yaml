@@ -1,0 +1,50 @@
+openapi: 3.0.1
+info:
+  title: Test
+  version: 0.1.0
+components:
+  schemas:
+    Dog:
+      type: object
+      properties:
+        type:
+          type: string
+          enum:
+            - dog
+        breed:
+          type: string
+      required:
+        - type
+    Cat:
+      type: object
+      properties:
+        type:
+          type: string
+          enum:
+            - cat
+        color:
+          type: string
+      required:
+        - type
+    ValidPet:
+      oneOf:
+        - $ref: '#/components/schemas/Dog'
+        - $ref: '#/components/schemas/Cat'
+      discriminator:
+        propertyName: type
+        mapping:
+          dog: '#/components/schemas/Dog'
+          cat: '#/components/schemas/Cat'
+    InvalidPet:
+      oneOf:
+        - $ref: '#/components/schemas/Dog'
+        - type: string
+      discriminator:
+        propertyName: type
+    Owner:
+      type: object
+      properties:
+        valid_pet:
+          $ref: '#/components/schemas/ValidPet'
+        invalid_pet:
+          $ref: '#/components/schemas/InvalidPet'

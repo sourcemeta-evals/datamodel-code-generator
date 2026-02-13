@@ -339,6 +339,26 @@ def test_main_openapi_discriminator_no_mapping_no_subtypes(output_file: Path) ->
     )
 
 
+def test_main_openapi_discriminator_invalid_variant(output_file: Path) -> None:
+    """Test OpenAPI generation with discriminator where a variant is not a model.
+
+    When a discriminated union includes a non-model variant (e.g., a primitive
+    type like string), the discriminator must be dropped from the Field() call
+    because pydantic v2 cannot discriminate on non-model types.
+    """
+    run_main_and_assert(
+        input_path=OPEN_API_DATA_PATH / "discriminator_invalid_variant.yaml",
+        output_path=output_file,
+        input_file_type="openapi",
+        assert_func=assert_file_content,
+        expected_file=EXPECTED_OPENAPI_PATH / "discriminator" / "invalid_variant.py",
+        extra_args=[
+            "--output-model-type",
+            "pydantic_v2.BaseModel",
+        ],
+    )
+
+
 def test_main_openapi_allof_with_oneof_ref(output_file: Path) -> None:
     """Test OpenAPI generation with allOf referencing a oneOf schema.
 

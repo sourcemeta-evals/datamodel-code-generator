@@ -1453,6 +1453,17 @@ class Parser(ABC, Generic[ParserConfigT, SchemaFeaturesT]):
                 )
                 discriminator["propertyName"] = field_name
                 mapping = discriminator.get("mapping", {})
+
+                all_variants_valid = all(
+                    data_type.reference
+                    and isinstance(data_type.reference.source, DataModel)
+                    and data_type.reference.source.SUPPORTS_DISCRIMINATOR
+                    for data_type in field.data_type.data_types
+                )
+                if not all_variants_valid:
+                    field.extras.pop("discriminator", None)
+                    continue
+
                 for data_type in field.data_type.data_types:
                     if not data_type.reference:  # pragma: no cover
                         continue
