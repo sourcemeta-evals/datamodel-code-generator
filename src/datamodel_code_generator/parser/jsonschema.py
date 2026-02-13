@@ -563,6 +563,49 @@ EXCLUDE_FIELD_KEYS = (
 }
 
 
+def _build_ref_path_from_context(path: list[str]) -> str | None:
+    fragment_parts: list[str] = []
+    found_hash = False
+    for part in path:
+        if part.startswith("#"):
+            found_hash = True
+            fragment_parts.append(part)
+        elif found_hash:
+            fragment_parts.append(part)
+    if not fragment_parts:
+        return None
+    return "/".join(fragment_parts)
+
+
+def _replace_recursive_refs_in_tree(node: Any, ref_path: str) -> None:
+    if isinstance(node, dict):
+        if "$recursiveRef" in node and node["$recursiveRef"] == "#":
+            del node["$recursiveRef"]
+            node.pop("$recursiveAnchor", None)
+            node["$ref"] = ref_path
+        elif "$dynamicRef" in node and node["$dynamicRef"] == "#":
+            del node["$dynamicRef"]
+            node.pop("$dynamicAnchor", None)
+            node["$ref"] = ref_path
+        else:
+            for value in node.values():
+                _replace_recursive_refs_in_tree(value, ref_path)
+    elif isinstance(node, list):
+        for item in node:
+            _replace_recursive_refs_in_tree(item, ref_path)
+
+
+def _resolve_recursive_refs(raw: dict[str, Any], path: list[str]) -> None:
+    has_recursive_anchor = raw.get("$recursiveAnchor") is True
+    has_dynamic_anchor = isinstance(raw.get("$dynamicAnchor"), str)
+    if not has_recursive_anchor and not has_dynamic_anchor:
+        return
+    ref_path = _build_ref_path_from_context(path)
+    if not ref_path:
+        return
+    _replace_recursive_refs_in_tree(raw, ref_path)
+
+
 @snooper_to_methods()  # noqa: PLR0904
 class JsonSchemaParser(Parser["JSONSchemaParserConfig", "JsonSchemaFeatures"]):
     """Parser for JSON Schema, JSON, YAML, Dict, and CSV formats."""
@@ -3776,6 +3819,9 @@ class JsonSchemaParser(Parser["JSONSchemaParserConfig", "JsonSchemaFeatures"]):
         if isinstance(raw, dict) and "x-python-import" in raw:
             self._handle_python_import(name, path)
             return
+
+        if isinstance(raw, dict):
+            _resolve_recursive_refs(raw, path)
 
         # Strict mode: check for version-specific features before validation
         self._check_version_specific_features(raw, path)
