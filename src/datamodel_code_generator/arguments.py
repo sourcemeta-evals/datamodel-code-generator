@@ -295,6 +295,13 @@ typing_options.add_argument(
     default=None,
 )
 typing_options.add_argument(
+    "--use-type-alias",
+    help="Generate type aliases instead of RootModel classes. "
+    "Output style depends on target Python version and output model type.",
+    action="store_true",
+    default=None,
+)
+typing_options.add_argument(
     "--use-union-operator",
     help="Use | operator for Union type (PEP 604).",
     action="store_true",

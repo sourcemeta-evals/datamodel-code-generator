@@ -368,6 +368,7 @@ class Config(BaseModel):
     no_alias: bool = False
     formatters: list[Formatter] = DEFAULT_FORMATTERS
     parent_scoped_naming: bool = False
+    use_type_alias: bool = False
     disable_future_imports: bool = False
 
     def merge_args(self, args: Namespace) -> None:
@@ -584,6 +585,7 @@ def main(args: Sequence[str] | None = None) -> Exit:  # noqa: PLR0911, PLR0912, 
             no_alias=config.no_alias,
             formatters=config.formatters,
             parent_scoped_naming=config.parent_scoped_naming,
+            use_type_alias=config.use_type_alias,
             disable_future_imports=config.disable_future_imports,
         )
     except InvalidClassNameError as e:

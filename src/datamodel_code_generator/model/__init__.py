@@ -83,4 +83,39 @@ def get_data_model_types(
     raise ValueError(msg)  # pragma: no cover
 
 
+_PY_312_OR_LATER = frozenset({
+    PythonVersion.PY_312,
+    PythonVersion.PY_313,
+    PythonVersion.PY_314,
+})
+
+
+def get_type_alias_root_model(
+    data_model_type: DataModelType,
+    target_python_version: PythonVersion,
+) -> type[DataModel]:
+    from datamodel_code_generator import DataModelType  # noqa: PLC0415
+
+    from .type_alias import (  # noqa: PLC0415
+        TypeAliasAnnotation,
+        TypeAliasAnnotationPy39,
+        TypeAliasTypeModel,
+        TypeStatementModel,
+    )
+
+    is_pydantic_v1 = data_model_type == DataModelType.PydanticBaseModel
+    is_pydantic_v2 = data_model_type == DataModelType.PydanticV2BaseModel
+
+    if target_python_version in _PY_312_OR_LATER and not is_pydantic_v1:
+        return TypeStatementModel
+
+    if is_pydantic_v2:
+        return TypeAliasTypeModel
+
+    if target_python_version == PythonVersion.PY_39:
+        return TypeAliasAnnotationPy39
+
+    return TypeAliasAnnotation
+
+
 __all__ = ["ConstraintsBase", "DataModel", "DataModelFieldBase"]
