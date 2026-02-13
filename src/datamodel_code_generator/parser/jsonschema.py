@@ -579,6 +579,100 @@ EXCLUDE_FIELD_KEYS = (
 }
 
 
+def _rewrite_recursive_refs(
+    obj: Any,
+    enclosing_schema_path: str,
+    recursive_anchors: dict[str, str],
+    dynamic_anchors: dict[str, str],
+) -> None:
+    """Walk *obj* and replace $recursiveRef / $dynamicRef with $ref."""
+    if isinstance(obj, dict):
+        if "$recursiveRef" in obj and "$ref" not in obj:
+            if obj["$recursiveRef"] == "#":
+                target = recursive_anchors.get(enclosing_schema_path)
+                if target is not None:
+                    obj["$ref"] = target
+                    del obj["$recursiveRef"]
+        if "$dynamicRef" in obj and "$ref" not in obj:
+            ref_value = obj["$dynamicRef"]
+            if isinstance(ref_value, str) and ref_value.startswith("#"):
+                anchor_name = ref_value[1:]
+                target = dynamic_anchors.get(anchor_name)
+                if target is not None:
+                    obj["$ref"] = target
+                    del obj["$dynamicRef"]
+        for value in obj.values():
+            _rewrite_recursive_refs(
+                value, enclosing_schema_path, recursive_anchors, dynamic_anchors
+            )
+    elif isinstance(obj, list):
+        for item in obj:
+            _rewrite_recursive_refs(
+                item, enclosing_schema_path, recursive_anchors, dynamic_anchors
+            )
+
+
+def _resolve_recursive_and_dynamic_refs(raw: dict[str, Any]) -> None:
+    """Resolve $recursiveRef and $dynamicRef by rewriting them as $ref.
+
+    JSON Schema 2019-09 introduced $recursiveRef/$recursiveAnchor for
+    recursive schemas.  JSON Schema 2020-12 replaced them with
+    $dynamicRef/$dynamicAnchor.  Neither is natively understood by
+    the parser, so we pre-process the raw dict and convert every
+    occurrence into a plain $ref that the existing pipeline already
+    handles.
+
+    Resolution rules
+    ----------------
+    * ``$recursiveRef: "#"`` inside a definition that carries
+      ``$recursiveAnchor: true`` is rewritten as ``$ref`` pointing back
+      to that definition (self-reference).
+    * ``$dynamicRef: "#<anchor>"`` is rewritten as ``$ref`` pointing to
+      whichever definition carries ``$dynamicAnchor: "<anchor>"``.
+    """
+    defs_sections: list[tuple[str, dict[str, Any]]] = []
+    for key in ("$defs", "definitions", "components"):
+        section = raw.get(key)
+        if isinstance(section, dict):
+            if key == "components":
+                schemas = section.get("schemas")
+                if isinstance(schemas, dict):
+                    defs_sections.append((f"#/{key}/schemas", schemas))
+            else:
+                defs_sections.append((f"#/{key}", section))
+
+    recursive_anchors: dict[str, str] = {}
+    dynamic_anchors: dict[str, str] = {}
+
+    if raw.get("$recursiveAnchor") is True:
+        recursive_anchors["#"] = "#"
+    root_dynamic = raw.get("$dynamicAnchor")
+    if isinstance(root_dynamic, str):
+        dynamic_anchors[root_dynamic] = "#"
+
+    for prefix, defs in defs_sections:
+        for name, schema in defs.items():
+            if not isinstance(schema, dict):
+                continue
+            ref_path = f"{prefix}/{name}"
+            if schema.get("$recursiveAnchor") is True:
+                recursive_anchors[ref_path] = ref_path
+            anchor = schema.get("$dynamicAnchor")
+            if isinstance(anchor, str):
+                dynamic_anchors[anchor] = ref_path
+
+    for prefix, defs in defs_sections:
+        for name, schema in defs.items():
+            if not isinstance(schema, dict):
+                continue
+            ref_path = f"{prefix}/{name}"
+            _rewrite_recursive_refs(
+                schema, ref_path, recursive_anchors, dynamic_anchors
+            )
+
+    _rewrite_recursive_refs(raw, "#", recursive_anchors, dynamic_anchors)
+
+
 @snooper_to_methods()  # noqa: PLR0904
 class JsonSchemaParser(Parser["JSONSchemaParserConfig", "JsonSchemaFeatures"]):
     """Parser for JSON Schema, JSON, YAML, Dict, and CSV formats."""
@@ -4078,6 +4172,7 @@ class JsonSchemaParser(Parser["JSONSchemaParserConfig", "JsonSchemaFeatures"]):
                 except TypeError:
                     warn(f"{source.path} is empty or not a dict. Skipping this file", stacklevel=2)
                     continue
+            _resolve_recursive_and_dynamic_refs(raw_obj)
             self.raw_obj = raw_obj
             title = self.raw_obj.get("title")
             title_str = str(title) if title is not None else "Model"

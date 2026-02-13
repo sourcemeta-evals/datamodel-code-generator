@@ -742,6 +742,9 @@ class OpenAPIParser(JsonSchemaParser):
             specification: dict[str, Any] = (
                 dict(source.raw_data) if source.raw_data is not None else load_data(source.text)
             )
+            from datamodel_code_generator.parser.jsonschema import _resolve_recursive_and_dynamic_refs
+
+            _resolve_recursive_and_dynamic_refs(specification)
             self.raw_obj = specification
             self._collect_discriminator_schemas()
             schemas: dict[str, Any] = specification.get("components", {}).get("schemas", {})
