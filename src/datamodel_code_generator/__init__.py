@@ -289,6 +289,7 @@ def generate(  # noqa: PLR0912, PLR0913, PLR0914, PLR0915
     no_alias: bool = False,
     formatters: list[Formatter] = DEFAULT_FORMATTERS,
     parent_scoped_naming: bool = False,
+    use_type_alias: bool = False,
     disable_future_imports: bool = False,
 ) -> None:
     remote_text_cache: DefaultPutDict[str, str] = DefaultPutDict()
@@ -414,7 +415,9 @@ def generate(  # noqa: PLR0912, PLR0913, PLR0914, PLR0915
 
     from datamodel_code_generator.model import get_data_model_types  # noqa: PLC0415
 
-    data_model_types = get_data_model_types(output_model_type, target_python_version)
+    data_model_types = get_data_model_types(
+        output_model_type, target_python_version, use_type_alias=use_type_alias
+    )
     source = input_text or input_
     assert not isinstance(source, Mapping)
     parser = parser_class(
