@@ -743,6 +743,7 @@ class OpenAPIParser(JsonSchemaParser):
                 dict(source.raw_data) if source.raw_data is not None else load_data(source.text)
             )
             self.raw_obj = specification
+            self._resolve_recursive_references()
             self._collect_discriminator_schemas()
             schemas: dict[str, Any] = specification.get("components", {}).get("schemas", {})
             paths: dict[str, Any] = specification.get("paths", {})
@@ -801,6 +802,45 @@ class OpenAPIParser(JsonSchemaParser):
 
         self._resolve_unparsed_json_pointer()
         self._generate_forced_base_models()
+
+    def _resolve_recursive_references(self) -> None:
+        """Resolve $recursiveRef/$dynamicRef to standard $ref in raw schemas.
+
+        JSON Schema 2019-09 introduced $recursiveRef/$recursiveAnchor for
+        self-referential schemas (e.g., tree structures). JSON Schema 2020-12
+        replaced these with $dynamicRef/$dynamicAnchor.
+
+        This method preprocesses raw schema data to convert these keywords
+        to standard $ref values that the parser already understands.
+        """
+        schemas: dict[str, Any] = self.raw_obj.get("components", {}).get("schemas", {})
+        for schema_name, schema in schemas.items():
+            if not isinstance(schema, dict):
+                continue
+            has_recursive_anchor = schema.get("$recursiveAnchor", False)
+            has_dynamic_anchor = "$dynamicAnchor" in schema
+            if has_recursive_anchor or has_dynamic_anchor:
+                ref_path = f"#/components/schemas/{schema_name}"
+                self._replace_recursive_refs_in_schema(schema, ref_path)
+
+    def _replace_recursive_refs_in_schema(self, data: Any, anchor_ref: str) -> None:  # noqa: PLR6301
+        """Walk through schema data and replace $recursiveRef/$dynamicRef with $ref.
+
+        Note: This could be a staticmethod, but @snooper_to_methods() decorator
+        converts staticmethods to regular functions when pysnooper is installed.
+        """
+        if isinstance(data, dict):
+            if "$recursiveRef" in data and data["$recursiveRef"] == "#":
+                data["$ref"] = anchor_ref
+                del data["$recursiveRef"]
+            elif "$dynamicRef" in data and data["$dynamicRef"] == "#":
+                data["$ref"] = anchor_ref
+                del data["$dynamicRef"]
+            for value in data.values():
+                self._replace_recursive_refs_in_schema(value, anchor_ref)
+        elif isinstance(data, list):
+            for item in data:
+                self._replace_recursive_refs_in_schema(item, anchor_ref)
 
     def _collect_discriminator_schemas(self) -> None:
         """Collect schemas with discriminators but no oneOf/anyOf, and find their subtypes."""
