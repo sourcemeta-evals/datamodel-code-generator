@@ -1,0 +1,35 @@
+openapi: "3.1.0"
+info:
+  title: Test
+  version: "1.0"
+paths: {}
+components:
+  schemas:
+    WebSearchTool:
+      type: object
+      required:
+        - type
+      properties:
+        type:
+          type: string
+          enum:
+            - web_search
+            - web_search_preview
+    FunctionTool:
+      type: object
+      required:
+        - type
+        - name
+      properties:
+        type:
+          type: string
+          enum:
+            - function
+        name:
+          type: string
+    Tool:
+      oneOf:
+        - $ref: '#/components/schemas/FunctionTool'
+        - $ref: '#/components/schemas/WebSearchTool'
+      discriminator:
+        propertyName: type
