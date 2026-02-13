@@ -8,8 +8,7 @@ from datamodel_code_generator.imports import (
     IMPORT_TYPE_ALIAS_TYPING_EXTENSIONS,
     Import,
 )
-from datamodel_code_generator.model import DataModel, DataModelFieldBase
-from datamodel_code_generator.model.base import UNDEFINED
+from datamodel_code_generator.model import DataModel
 
 
 class TypeAliasAnnotation(DataModel):
