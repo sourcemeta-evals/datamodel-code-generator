@@ -1642,9 +1642,9 @@ class JsonSchemaParser(Parser["JSONSchemaParserConfig", "JsonSchemaFeatures"]):
     #    to find all locations where $recursiveAnchor: true was
     #    declared.
     #
-    # 3. If no anchors are found, return None to indicate that
-    #    $recursiveRef cannot be resolved (the schema lacks the
-    #    corresponding anchor declaration).
+    # 3. If no anchors are found, fall back to "#" (the document
+    #    root). Per the specification, $recursiveRef: "#" without a
+    #    matching $recursiveAnchor resolves to the root schema.
     #
     # 4. Compute the current schema location as a root-relative JSON
     #    pointer path. This is done by stripping the root prefix from
@@ -1668,7 +1668,7 @@ class JsonSchemaParser(Parser["JSONSchemaParserConfig", "JsonSchemaFeatures"]):
             return None
         anchors = self.recursive_anchor_index.get(root_key, [])
         if not anchors:
-            return None
+            return "#"
         root_len = len(root_key)
         if root_len < len(path):
             suffix_parts = path[root_len:]
@@ -1722,12 +1722,17 @@ class JsonSchemaParser(Parser["JSONSchemaParserConfig", "JsonSchemaFeatures"]):
     # session.
     #
     # In a code generation context, dynamic resolution is resolved
-    # statically during parsing by looking up the anchor index. This
-    # differs from runtime validation where dynamic scope traversal
-    # would follow the actual call stack of schema evaluation. For
-    # code generation purposes, the static lookup produces the correct
-    # result because we always want to reference the type defined at
-    # the anchor declaration site.
+    # statically during parsing by looking up the anchor index. The
+    # index uses setdefault so the outermost (first-registered) anchor
+    # for a given name wins, matching the spec requirement that
+    # $dynamicRef resolves to the outermost $dynamicAnchor in the
+    # dynamic scope. This differs from runtime validation where
+    # dynamic scope traversal would follow the actual call stack of
+    # schema evaluation. For code generation purposes, the static
+    # lookup produces the correct result because we always want to
+    # reference the type defined at the outermost anchor site. When
+    # the anchor is not found, the caller falls back to treating
+    # $dynamicRef as a regular $ref.
     # -------------------------------------------------------------------
     def resolve_dynamic_ref(self, item, root_key):
         ref = item.dynamicRef
@@ -3118,14 +3123,10 @@ class JsonSchemaParser(Parser["JSONSchemaParserConfig", "JsonSchemaFeatures"]):
             )
         if item.recursiveRef and not item.ref:
             root_key = tuple(self.model_resolver.current_root)
-            resolved = self.resolve_recursive_ref(item, path, root_key)
-            if resolved is not None:
-                return self.get_ref_data_type(resolved)
+            return self.get_ref_data_type(self.resolve_recursive_ref(item, path, root_key) or "#")
         if item.dynamicRef and not item.ref:
             root_key = tuple(self.model_resolver.current_root)
-            resolved = self.resolve_dynamic_ref(item, root_key)
-            if resolved is not None:
-                return self.get_ref_data_type(resolved)
+            return self.get_ref_data_type(self.resolve_dynamic_ref(item, root_key) or item.dynamicRef)
         if item.is_ref_with_nullable_only and item.ref:
             ref_data_type = self.get_ref_data_type(item.ref)
             if self.strict_nullable:
