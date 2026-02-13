@@ -339,6 +339,26 @@ def test_main_openapi_discriminator_no_mapping_no_subtypes(output_file: Path) ->
     )
 
 
+def test_main_openapi_recursive_ref(output_file: Path) -> None:
+    """Test OpenAPI generation with $recursiveRef/$recursiveAnchor.
+
+    This tests that schemas using JSON Schema 2019-09 $recursiveRef/#
+    and $recursiveAnchor are properly resolved to regular $ref before parsing.
+    Regression test for issue #2972.
+    """
+    run_main_and_assert(
+        input_path=OPEN_API_DATA_PATH / "recursive_ref.yaml",
+        output_path=output_file,
+        input_file_type="openapi",
+        assert_func=assert_file_content,
+        expected_file=EXPECTED_OPENAPI_PATH / "recursive_ref" / "recursive_ref.py",
+        extra_args=[
+            "--output-model-type",
+            "pydantic_v2.BaseModel",
+        ],
+    )
+
+
 def test_main_openapi_allof_with_oneof_ref(output_file: Path) -> None:
     """Test OpenAPI generation with allOf referencing a oneOf schema.
 

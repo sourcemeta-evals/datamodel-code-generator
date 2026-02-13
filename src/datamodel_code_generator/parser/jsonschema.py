@@ -548,6 +548,88 @@ def _get_type(
 
 JsonSchemaObject.model_rebuild()
 
+
+def _resolve_recursive_ref_in_schema(
+    schema: dict[str, Any],
+    anchor_ref: str | None = None,
+) -> None:
+    """Resolve $recursiveRef and $dynamicRef into regular $ref in-place.
+
+    JSON Schema 2019-09 uses $recursiveAnchor/$recursiveRef for recursive schemas.
+    JSON Schema 2020-12 uses $dynamicAnchor/$dynamicRef for the same purpose.
+    This function converts them to regular $ref so existing parsing works.
+
+    Args:
+        schema: The schema dict to process (modified in-place).
+        anchor_ref: The $ref path of the enclosing schema with $recursiveAnchor
+                     or $dynamicAnchor set to true. When a $recursiveRef: '#' or
+                     $dynamicRef: '#' is found, it is replaced with this path.
+    """
+    if not isinstance(schema, dict):
+        return
+
+    if schema.get("$recursiveAnchor") is True or schema.get("$dynamicAnchor") is True:
+        if anchor_ref is not None:
+            current_anchor_ref = anchor_ref
+        else:
+            current_anchor_ref = None
+    else:
+        current_anchor_ref = anchor_ref
+
+    recursive_ref = schema.get("$recursiveRef")
+    dynamic_ref = schema.get("$dynamicRef")
+    ref_value = recursive_ref or dynamic_ref
+
+    if ref_value == "#" and current_anchor_ref is not None:
+        schema["$ref"] = current_anchor_ref
+        schema.pop("$recursiveRef", None)
+        schema.pop("$dynamicRef", None)
+
+    for value in schema.values():
+        if isinstance(value, dict):
+            _resolve_recursive_ref_in_schema(value, current_anchor_ref)
+        elif isinstance(value, list):
+            for item in value:
+                if isinstance(item, dict):
+                    _resolve_recursive_ref_in_schema(item, current_anchor_ref)
+
+
+def resolve_recursive_refs_in_openapi(specification: dict[str, Any]) -> None:
+    """Resolve $recursiveRef/$dynamicRef in an OpenAPI specification in-place.
+
+    Scans components/schemas for schemas with $recursiveAnchor or $dynamicAnchor
+    and resolves any $recursiveRef/#  or $dynamicRef/# within them to regular $ref.
+    """
+    schemas: dict[str, Any] = specification.get("components", {}).get("schemas", {})
+    for schema_name, schema in schemas.items():
+        if not isinstance(schema, dict):
+            continue
+        if schema.get("$recursiveAnchor") is True or schema.get("$dynamicAnchor") is True:
+            anchor_ref = f"#/components/schemas/{schema_name}"
+            _resolve_recursive_ref_in_schema(schema, anchor_ref)
+
+
+def resolve_recursive_refs_in_jsonschema(raw_obj: dict[str, Any]) -> None:
+    """Resolve $recursiveRef/$dynamicRef in a JSON Schema document in-place.
+
+    Handles both top-level schemas with $recursiveAnchor/$dynamicAnchor and
+    schemas inside definitions/$defs.
+    """
+    if raw_obj.get("$recursiveAnchor") is True or raw_obj.get("$dynamicAnchor") is True:
+        _resolve_recursive_ref_in_schema(raw_obj, "#")
+
+    for defs_key in ("definitions", "$defs"):
+        defs = raw_obj.get(defs_key, {})
+        if not isinstance(defs, dict):
+            continue
+        for def_name, def_schema in defs.items():
+            if not isinstance(def_schema, dict):
+                continue
+            if def_schema.get("$recursiveAnchor") is True or def_schema.get("$dynamicAnchor") is True:
+                anchor_ref = f"#/{defs_key}/{def_name}"
+                _resolve_recursive_ref_in_schema(def_schema, anchor_ref)
+
+
 DEFAULT_FIELD_KEYS: set[str] = {
     "example",
     "examples",
@@ -4079,6 +4161,7 @@ class JsonSchemaParser(Parser["JSONSchemaParserConfig", "JsonSchemaFeatures"]):
                     warn(f"{source.path} is empty or not a dict. Skipping this file", stacklevel=2)
                     continue
             self.raw_obj = raw_obj
+            resolve_recursive_refs_in_jsonschema(self.raw_obj)
             title = self.raw_obj.get("title")
             title_str = str(title) if title is not None else "Model"
             if self.custom_class_name_generator:
