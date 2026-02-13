@@ -1453,7 +1453,21 @@ class Parser(ABC, Generic[ParserConfigT, SchemaFeaturesT]):
                 )
                 discriminator["propertyName"] = field_name
                 mapping = discriminator.get("mapping", {})
-                for data_type in field.data_type.data_types:
+                data_types_to_process = list(field.data_type.data_types)
+                if not data_types_to_process and field.data_type.reference:
+                    ref_source = field.data_type.reference.source
+                    if isinstance(ref_source, DataModel):
+                        for f in ref_source.fields:
+                            if field_name not in {f.original_name, f.name}:
+                                continue
+                            has_const = bool(f.extras.get("const"))
+                            has_literals = bool(f.data_type.literals)
+                            enum_src = f.data_type.find_source(Enum)
+                            has_single_enum = bool(enum_src and len(enum_src.fields) == 1)
+                            if has_const or has_literals or has_single_enum:
+                                data_types_to_process = [field.data_type]
+                            break
+                for data_type in data_types_to_process:
                     if not data_type.reference:  # pragma: no cover
                         continue
                     discriminator_model = data_type.reference.source

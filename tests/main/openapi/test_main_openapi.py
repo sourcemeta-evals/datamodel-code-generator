@@ -2663,6 +2663,20 @@ def test_main_openapi_discriminator_in_array(
 
 @freeze_time("2023-07-27")
 @SKIP_PYDANTIC_V1
+def test_main_openapi_discriminator_single_variant_in_array(output_file: Path) -> None:
+    """Test discriminator with single variant in oneOf generates Literal field type."""
+    run_main_and_assert(
+        input_path=OPEN_API_DATA_PATH / "discriminator_single_variant_in_array.yaml",
+        output_path=output_file,
+        input_file_type="openapi",
+        assert_func=assert_file_content,
+        expected_file="discriminator/single_variant_in_array_pydantic_v2.py",
+        extra_args=["--output-model-type", "pydantic_v2.BaseModel"],
+    )
+
+
+@freeze_time("2023-07-27")
+@SKIP_PYDANTIC_V1
 def test_main_openapi_discriminator_in_array_underscore(output_file: Path) -> None:
     """Test discriminator with underscore property name generates valid Pydantic v2 code."""
     run_main_and_assert(
