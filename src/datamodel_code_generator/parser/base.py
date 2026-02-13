@@ -1453,7 +1453,12 @@ class Parser(ABC, Generic[ParserConfigT, SchemaFeaturesT]):
                 )
                 discriminator["propertyName"] = field_name
                 mapping = discriminator.get("mapping", {})
-                for data_type in field.data_type.data_types:
+                variant_data_types = field.data_type.data_types
+                is_single_variant = False
+                if not variant_data_types and field.data_type.reference:
+                    variant_data_types = [field.data_type]
+                    is_single_variant = True
+                for data_type in variant_data_types:
                     if not data_type.reference:  # pragma: no cover
                         continue
                     discriminator_model = data_type.reference.source
@@ -1515,12 +1520,36 @@ class Parser(ABC, Generic[ParserConfigT, SchemaFeaturesT]):
                                     first_field = enum_source.fields[0]
                                     raw_default = first_field.default
                                     if isinstance(raw_default, str):
-                                        type_names = [raw_default.strip("'\"")]
+                                        type_names = [raw_default.strip("'\"")] 
                                     else:  # pragma: no cover
                                         type_names = [str(raw_default)]
                                     break
 
                             if not type_names:
+                                for base_class in discriminator_model.base_classes:
+                                    if not base_class.reference or not base_class.reference.source:
+                                        continue
+                                    base_model = base_class.reference.source
+                                    if not isinstance(base_model, DataModel):
+                                        continue
+                                    for base_field in base_model.fields:
+                                        if field_name not in {base_field.original_name, base_field.name}:
+                                            continue
+                                        enum_source = base_field.data_type.find_source(Enum)
+                                        if enum_source and len(enum_source.fields) == 1:
+                                            first_field = enum_source.fields[0]
+                                            raw_default = first_field.default
+                                            if isinstance(raw_default, str):
+                                                type_names = [raw_default.strip("'\"")] 
+                                            else:  # pragma: no cover
+                                                type_names = [str(raw_default)]
+                                            break
+                                    if type_names:
+                                        break
+
+                            if not type_names:
+                                if is_single_variant:
+                                    continue
                                 type_names = [discriminator_model.path.split("/")[-1]]
 
                     if not type_names:  # pragma: no cover

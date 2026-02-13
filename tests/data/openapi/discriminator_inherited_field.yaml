@@ -1,0 +1,48 @@
+openapi: "3.0.0"
+info:
+  title: Test
+  version: "1.0"
+paths: {}
+components:
+  schemas:
+    FunctionToolCall:
+      type: object
+      properties:
+        type:
+          type: string
+          enum:
+            - function_call
+        name:
+          type: string
+      required:
+        - type
+        - name
+
+    FunctionToolCallResource:
+      allOf:
+        - $ref: '#/components/schemas/FunctionToolCall'
+        - type: object
+          properties:
+            id:
+              type: string
+          required:
+            - id
+
+    WebSearchToolCall:
+      type: object
+      properties:
+        type:
+          type: string
+          enum:
+            - web_search_call
+        query:
+          type: string
+      required:
+        - type
+
+    ConversationItem:
+      oneOf:
+        - $ref: '#/components/schemas/FunctionToolCallResource'
+        - $ref: '#/components/schemas/WebSearchToolCall'
+      discriminator:
+        propertyName: type

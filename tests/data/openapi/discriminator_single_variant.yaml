@@ -1,0 +1,36 @@
+openapi: "3.0.0"
+info:
+  title: Test
+  version: "1.0"
+paths: {}
+components:
+  schemas:
+    FineTuningIntegration:
+      type: object
+      required:
+        - type
+        - wandb
+      properties:
+        type:
+          type: string
+          description: The type of the integration
+          enum:
+            - wandb
+        wandb:
+          type: object
+          properties:
+            project:
+              type: string
+
+    FineTuningJob:
+      type: object
+      properties:
+        integrations:
+          anyOf:
+            - type: array
+              items:
+                oneOf:
+                  - $ref: '#/components/schemas/FineTuningIntegration'
+                discriminator:
+                  propertyName: type
+            - type: 'null'

@@ -281,6 +281,46 @@ def test_main_openapi_discriminator_allof_no_subtypes(output_file: Path) -> None
     )
 
 
+def test_main_openapi_discriminator_single_variant(output_file: Path) -> None:
+    """Test discriminator with single oneOf variant converts enum to Literal.
+
+    When oneOf has only one variant with a discriminator, the variant's enum
+    field must be converted to Literal for pydantic v2 discriminated unions.
+    Regression test for issue #2972.
+    """
+    run_main_and_assert(
+        input_path=OPEN_API_DATA_PATH / "discriminator_single_variant.yaml",
+        output_path=output_file,
+        input_file_type="openapi",
+        assert_func=assert_file_content,
+        expected_file=EXPECTED_OPENAPI_PATH / "discriminator" / "single_variant.py",
+        extra_args=[
+            "--output-model-type",
+            "pydantic_v2.BaseModel",
+        ],
+    )
+
+
+def test_main_openapi_discriminator_inherited_field(output_file: Path) -> None:
+    """Test discriminator with field inherited from base class via allOf.
+
+    When a variant inherits the discriminator field from a base class via allOf,
+    the field's enum value must be used for the Literal type instead of the
+    model's class name. Regression test for issue #2972.
+    """
+    run_main_and_assert(
+        input_path=OPEN_API_DATA_PATH / "discriminator_inherited_field.yaml",
+        output_path=output_file,
+        input_file_type="openapi",
+        assert_func=assert_file_content,
+        expected_file=EXPECTED_OPENAPI_PATH / "discriminator" / "inherited_field.py",
+        extra_args=[
+            "--output-model-type",
+            "pydantic_v2.BaseModel",
+        ],
+    )
+
+
 def test_main_openapi_discriminator_short_mapping_names(output_file: Path) -> None:
     """Test OpenAPI generation with discriminator using short mapping names.
 
