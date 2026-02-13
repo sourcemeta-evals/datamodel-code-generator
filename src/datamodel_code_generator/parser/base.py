@@ -1506,18 +1506,21 @@ class Parser(ABC, Generic[ParserConfigT, SchemaFeaturesT]):
                                     continue
 
                                 literals = discriminator_field.data_type.literals
-                                if literals and len(literals) == 1:  # pragma: no cover
+                                if literals:
                                     type_names = [str(v) for v in literals]
                                     break
 
                                 enum_source = discriminator_field.data_type.find_source(Enum)
-                                if enum_source and len(enum_source.fields) == 1:
-                                    first_field = enum_source.fields[0]
-                                    raw_default = first_field.default
-                                    if isinstance(raw_default, str):
-                                        type_names = [raw_default.strip("'\"")]
-                                    else:  # pragma: no cover
-                                        type_names = [str(raw_default)]
+                                if enum_source and enum_source.fields:
+                                    extracted: list[str] = []
+                                    for ef in enum_source.fields:
+                                        raw_default = ef.default
+                                        if isinstance(raw_default, str):
+                                            extracted.append(raw_default.strip("'\""))
+                                        else:  # pragma: no cover
+                                            extracted.append(str(raw_default))
+                                    if extracted:
+                                        type_names = extracted
                                     break
 
                             if not type_names:
@@ -1561,7 +1564,10 @@ class Parser(ABC, Generic[ParserConfigT, SchemaFeaturesT]):
                         expected_value = type_names[0] if type_names else None
 
                         # Check if literals match (existing behavior)
-                        literals_match = len(literals) == 1 and literals[0] == expected_value
+                        literals_match = (
+                            len(literals) == len(type_names)
+                            and sorted(str(v) for v in literals) == sorted(type_names)
+                        ) if literals and type_names else False
                         # Check if const value matches (for msgspec with type: string + const)
                         const_match = const_value is not None and const_value == expected_value
 
