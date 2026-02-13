@@ -312,6 +312,12 @@ typing_options.add_argument(
     action="store_true",
     default=None,
 )
+typing_options.add_argument(
+    "--use-type-alias",
+    help="Generate type aliases instead of RootModel classes for root types.",
+    action="store_true",
+    default=None,
+)
 
 # ======================================================================================
 # Customization options for generated model fields
