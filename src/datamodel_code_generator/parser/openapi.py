@@ -743,6 +743,7 @@ class OpenAPIParser(JsonSchemaParser):
                 dict(source.raw_data) if source.raw_data is not None else load_data(source.text)
             )
             self.raw_obj = specification
+            self._resolve_recursive_refs()
             self._collect_discriminator_schemas()
             schemas: dict[str, Any] = specification.get("components", {}).get("schemas", {})
             paths: dict[str, Any] = specification.get("paths", {})
@@ -824,3 +825,19 @@ class OpenAPIParser(JsonSchemaParser):
                 if ref_in_allof in self._discriminator_schemas:
                     subtype_ref = f"#/components/schemas/{schema_name}"
                     self._discriminator_subtypes[ref_in_allof].append(subtype_ref)
+
+    def _resolve_recursive_refs(self) -> None:
+        """Resolve $recursiveRef and $dynamicRef in component schemas to regular $ref.
+
+        JSON Schema 2019-09 uses $recursiveAnchor/$recursiveRef for self-referencing schemas.
+        JSON Schema 2020-12 uses $dynamicAnchor/$dynamicRef for the same purpose.
+        This method pre-processes the raw specification to convert these to standard $ref
+        so the rest of the pipeline handles them correctly.
+        """
+        schemas: dict[str, Any] = self.raw_obj.get("components", {}).get("schemas", {})
+        for schema_name, schema in schemas.items():
+            if not isinstance(schema, dict):
+                continue
+            if schema.get("$recursiveAnchor") or schema.get("$dynamicAnchor"):
+                ref_path = f"#/components/schemas/{schema_name}"
+                self._replace_recursive_refs_in_schema(schema, ref_path)

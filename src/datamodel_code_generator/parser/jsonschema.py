@@ -563,6 +563,33 @@ EXCLUDE_FIELD_KEYS = (
 }
 
 
+def _replace_recursive_refs(schema: Any, anchor_ref: str) -> None:
+    """Replace $recursiveRef and $dynamicRef with standard $ref in a raw schema dict.
+
+    Walks the schema tree and converts:
+    - $recursiveRef: '#' -> $ref: <anchor_ref>  (JSON Schema 2019-09)
+    - $dynamicRef: '#' -> $ref: <anchor_ref>    (JSON Schema 2020-12)
+
+    Args:
+        schema: Raw schema dictionary to process (modified in place).
+        anchor_ref: The $ref path to the enclosing schema with $recursiveAnchor/$dynamicAnchor.
+    """
+    if not isinstance(schema, dict):
+        return
+    for key in ("$recursiveRef", "$dynamicRef"):
+        if key in schema and schema[key] == "#":
+            schema["$ref"] = anchor_ref
+            del schema[key]
+            return
+    for value in schema.values():
+        if isinstance(value, dict):
+            _replace_recursive_refs(value, anchor_ref)
+        elif isinstance(value, list):
+            for item in value:
+                if isinstance(item, dict):
+                    _replace_recursive_refs(item, anchor_ref)
+
+
 @snooper_to_methods()  # noqa: PLR0904
 class JsonSchemaParser(Parser["JSONSchemaParserConfig", "JsonSchemaFeatures"]):
     """Parser for JSON Schema, JSON, YAML, Dict, and CSV formats."""
@@ -3896,6 +3923,22 @@ class JsonSchemaParser(Parser["JSONSchemaParserConfig", "JsonSchemaFeatures"]):
         """Mark x-python-import reference as loaded to skip model generation."""
         self.model_resolver.add(path, name, class_name=True, loaded=True)
 
+    def _replace_recursive_refs_in_schema(self, schema: Any, anchor_ref: str) -> None:  # noqa: PLR6301
+        """Replace $recursiveRef and $dynamicRef with standard $ref in a raw schema dict.
+
+        Walks the schema tree and converts:
+        - $recursiveRef: '#' -> $ref: <anchor_ref>  (JSON Schema 2019-09)
+        - $dynamicRef: '#' -> $ref: <anchor_ref>    (JSON Schema 2020-12)
+
+        Note: This is an instance method (not static) due to the snooper_to_methods
+        class decorator which does not preserve staticmethod descriptors.
+
+        Args:
+            schema: Raw schema dictionary to process (modified in place).
+            anchor_ref: The $ref path to the enclosing schema with $recursiveAnchor/$dynamicAnchor.
+        """
+        _replace_recursive_refs(schema, anchor_ref)
+
     def parse_obj(  # noqa: PLR0912
         self,
         name: str,
@@ -4062,6 +4105,11 @@ class JsonSchemaParser(Parser["JSONSchemaParserConfig", "JsonSchemaFeatures"]):
                         continue
 
                 for key, model in definitions.items():
+                    if isinstance(model, dict) and (
+                        model.get("$recursiveAnchor") or model.get("$dynamicAnchor")
+                    ):
+                        ref_path = f"{schema_path}/{key}"
+                        self._replace_recursive_refs_in_schema(model, ref_path)
                     definition_path = [*path_parts, schema_path, key]
                     obj = self._validate_schema_object(model, definition_path)
                     self.parse_id(obj, definition_path)
