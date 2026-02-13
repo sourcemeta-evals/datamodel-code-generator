@@ -1610,10 +1610,19 @@ class JsonSchemaParser(Parser["JSONSchemaParserConfig", "JsonSchemaFeatures"]):
     # -------------------------------------------------------------------
     def build_anchor_indexes(self, obj, path):
         root_key = tuple(self.model_resolver.current_root)
+        root_len = len(root_key)
+        if root_len < len(path):
+            suffix_parts = path[root_len:]
+            first = suffix_parts[0]
+            if first.startswith("#"):
+                suffix_parts = [first[1:].lstrip("/"), *suffix_parts[1:]]
+            ref_path = "#/" + "/".join(suffix_parts)
+        else:
+            ref_path = "#"
         if obj.recursiveAnchor:
-            self.recursive_anchor_index.setdefault(root_key, []).append("#")
+            self.recursive_anchor_index.setdefault(root_key, []).append(ref_path)
         if obj.dynamicAnchor:
-            self.dynamic_anchor_index.setdefault(root_key, {}).setdefault(obj.dynamicAnchor, "#")
+            self.dynamic_anchor_index.setdefault(root_key, {}).setdefault(obj.dynamicAnchor, ref_path)
 
     # -------------------------------------------------------------------
     # $recursiveRef resolver (JSON Schema 2019-09)
@@ -4261,10 +4270,12 @@ class JsonSchemaParser(Parser["JSONSchemaParserConfig", "JsonSchemaFeatures"]):
                     self.parse_id(obj, definition_path)
                     if obj.recursiveAnchor:
                         root_key = tuple(path_parts)
-                        self.recursive_anchor_index.setdefault(root_key, []).append("#")
+                        ref_path = "#/" + schema_path.lstrip("#/") + "/" + key
+                        self.recursive_anchor_index.setdefault(root_key, []).append(ref_path)
                     if obj.dynamicAnchor:
                         root_key = tuple(path_parts)
-                        self.dynamic_anchor_index.setdefault(root_key, {}).setdefault(obj.dynamicAnchor, "#")
+                        ref_path = "#/" + schema_path.lstrip("#/") + "/" + key
+                        self.dynamic_anchor_index.setdefault(root_key, {}).setdefault(obj.dynamicAnchor, ref_path)
 
                 if object_paths:
                     models = get_model_by_path(raw, object_paths)
