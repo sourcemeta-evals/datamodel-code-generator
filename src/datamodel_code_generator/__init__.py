@@ -270,6 +270,7 @@ def generate(  # noqa: PLR0912, PLR0913, PLR0914, PLR0915
     use_double_quotes: bool = False,
     use_union_operator: bool = False,
     collapse_root_models: bool = False,
+    use_type_alias: bool = False,
     special_field_name_prefix: str | None = None,
     remove_special_field_name_prefix: bool = False,
     capitalise_enum_members: bool = False,
@@ -415,12 +416,28 @@ def generate(  # noqa: PLR0912, PLR0913, PLR0914, PLR0915
     from datamodel_code_generator.model import get_data_model_types  # noqa: PLC0415
 
     data_model_types = get_data_model_types(output_model_type, target_python_version)
+
+    root_model_type = data_model_types.root_model
+    if use_type_alias:
+        from datamodel_code_generator.model.type_alias import (  # noqa: PLC0415
+            TypeAliasAnnotation,
+            TypeAliasStatement,
+            TypeAliasTypeModel,
+        )
+
+        if target_python_version.has_type_statement:
+            root_model_type = TypeAliasStatement
+        elif output_model_type == DataModelType.PydanticV2BaseModel:
+            root_model_type = TypeAliasTypeModel
+        else:
+            root_model_type = TypeAliasAnnotation
+
     source = input_text or input_
     assert not isinstance(source, Mapping)
     parser = parser_class(
         source=source,
         data_model_type=data_model_types.data_model,
-        data_model_root_type=data_model_types.root_model,
+        data_model_root_type=root_model_type,
         data_model_field_type=data_model_types.field_model,
         data_type_manager_type=data_model_types.data_type_manager,
         base_class=base_class,

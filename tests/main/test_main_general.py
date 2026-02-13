@@ -190,6 +190,81 @@ def test_frozen_dataclasses_with_keyword_only_command_line(tmp_path: Path) -> No
     )
 
 
+@pytest.mark.parametrize(
+    ("output_model_type", "target_python_version", "expected_file"),
+    [
+        (
+            DataModelType.PydanticV2BaseModel,
+            PythonVersion.PY_312,
+            "type_alias_pydantic_v2_py312.py",
+        ),
+        (
+            DataModelType.PydanticV2BaseModel,
+            PythonVersion.PY_39,
+            "type_alias_pydantic_v2_py39.py",
+        ),
+        (
+            DataModelType.PydanticBaseModel,
+            PythonVersion.PY_39,
+            "type_alias_pydantic_v1_py39.py",
+        ),
+        (
+            DataModelType.DataclassesDataclass,
+            PythonVersion.PY_312,
+            "type_alias_dataclass_py312.py",
+        ),
+        (
+            DataModelType.DataclassesDataclass,
+            PythonVersion.PY_39,
+            "type_alias_dataclass_py39.py",
+        ),
+    ],
+)
+@freeze_time("2019-07-26")
+def test_use_type_alias(
+    output_model_type: DataModelType,
+    target_python_version: PythonVersion,
+    expected_file: str,
+    tmp_path: Path,
+) -> None:
+    output_file = tmp_path / "output.py"
+    generate(
+        DATA_PATH / "jsonschema" / "type_alias_test.json",
+        input_file_type=InputFileType.JsonSchema,
+        output=output_file,
+        output_model_type=output_model_type,
+        target_python_version=target_python_version,
+        use_type_alias=True,
+        use_annotated=True,
+        field_constraints=True,
+    )
+    assert output_file.read_text() == (EXPECTED_MAIN_PATH / expected_file).read_text()
+
+
+@freeze_time("2019-07-26")
+def test_use_type_alias_command_line(tmp_path: Path) -> None:
+    output_file: Path = tmp_path / "output.py"
+    return_code: Exit = main([
+        "--input",
+        str(DATA_PATH / "jsonschema" / "type_alias_test.json"),
+        "--output",
+        str(output_file),
+        "--input-file-type",
+        "jsonschema",
+        "--output-model-type",
+        "pydantic_v2.BaseModel",
+        "--target-python-version",
+        "3.12",
+        "--use-type-alias",
+        "--use-annotated",
+    ])
+    assert return_code == Exit.OK
+    assert (
+        output_file.read_text(encoding="utf-8")
+        == (EXPECTED_MAIN_PATH / "type_alias_pydantic_v2_py312.py").read_text()
+    )
+
+
 def test_filename_with_newline_injection(tmp_path: Path) -> None:
     """Test that filenames with newlines cannot inject code into generated files"""
 

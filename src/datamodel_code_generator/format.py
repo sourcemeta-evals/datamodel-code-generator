@@ -49,6 +49,14 @@ class PythonVersion(Enum):
     def has_typed_dict_non_required(self) -> bool:
         return self._is_py_311_or_later
 
+    @cached_property
+    def has_type_statement(self) -> bool:
+        return self.value not in {
+            self.PY_39.value,
+            self.PY_310.value,
+            self.PY_311.value,
+        }
+
     @property
     def has_kw_only_dataclass(self) -> bool:
         return self._is_py_310_or_later
