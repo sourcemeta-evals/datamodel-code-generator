@@ -33,6 +33,7 @@ from datamodel_code_generator.parser.jsonschema import (
     JsonSchemaObject,
     JsonSchemaParser,
     get_model_by_path,
+    resolve_recursive_refs_in_openapi,
 )
 from datamodel_code_generator.reference import FieldNameResolver, is_url, snake_to_upper_camel
 from datamodel_code_generator.types import (
@@ -743,6 +744,7 @@ class OpenAPIParser(JsonSchemaParser):
                 dict(source.raw_data) if source.raw_data is not None else load_data(source.text)
             )
             self.raw_obj = specification
+            resolve_recursive_refs_in_openapi(self.raw_obj)
             self._collect_discriminator_schemas()
             schemas: dict[str, Any] = specification.get("components", {}).get("schemas", {})
             paths: dict[str, Any] = specification.get("paths", {})
