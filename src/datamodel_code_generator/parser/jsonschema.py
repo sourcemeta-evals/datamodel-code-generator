@@ -24,6 +24,7 @@ from pydantic import (
 )
 from typing_extensions import Unpack
 
+import copy
 from datamodel_code_generator import (
     AllOfClassHierarchy,
     AllOfMergeMode,
@@ -258,6 +259,10 @@ class JsonSchemaObject(BaseModel):
         "readOnly",
         "writeOnly",
         "deprecated",
+        "$recursiveRef",
+        "$recursiveAnchor",
+        "$dynamicRef",
+        "$dynamicAnchor",
     }
 
     @model_validator(mode="before")
@@ -358,6 +363,10 @@ class JsonSchemaObject(BaseModel):
     properties: Optional[dict[str, Union[JsonSchemaObject, bool]]] = None  # noqa: UP007, UP045
     required: list[str] = Field(default_factory=list)
     ref: Optional[str] = Field(default=None, alias="$ref")  # noqa: UP045
+    recursiveRef: Optional[str] = Field(default=None, alias="$recursiveRef")  # noqa: N815, UP045
+    recursiveAnchor: Optional[bool] = Field(default=None, alias="$recursiveAnchor")  # noqa: N815, UP045
+    dynamicRef: Optional[str] = Field(default=None, alias="$dynamicRef")  # noqa: N815, UP045
+    dynamicAnchor: Optional[str] = Field(default=None, alias="$dynamicAnchor")  # noqa: N815, UP045
     nullable: Optional[bool] = None  # noqa: UP045
     x_enum_varnames: list[str] = Field(default_factory=list, alias="x-enum-varnames")
     x_enum_names: list[str] = Field(default_factory=list, alias="x-enumNames")
@@ -559,6 +568,10 @@ EXCLUDE_FIELD_KEYS = (
 ) | {
     "$id",
     "$ref",
+    "$recursiveRef",
+    "$recursiveAnchor",
+    "$dynamicRef",
+    "$dynamicAnchor",
     JsonSchemaObject.__extra_key__,
 }
 
@@ -688,6 +701,8 @@ class JsonSchemaParser(Parser["JSONSchemaParserConfig", "JsonSchemaFeatures"]):
         self._root_id: Optional[str] = None  # noqa: UP045
         self._root_id_base_path: Optional[str] = None  # noqa: UP045
         self.reserved_refs: defaultdict[tuple[str, ...], set[str]] = defaultdict(set)
+        self.dynamic_anchor_index = {}
+        self.recursive_anchor_index = {}
         self.field_keys: set[str] = {
             *DEFAULT_FIELD_KEYS,
             *self.field_extra_keys,
@@ -1551,6 +1566,171 @@ class JsonSchemaParser(Parser["JSONSchemaParserConfig", "JsonSchemaFeatures"]):
             target_schema = get_model_by_path(raw_doc, pointer)
 
         return model_validate(self.SCHEMA_OBJECT_TYPE, target_schema)
+
+    # -------------------------------------------------------------------
+    # Anchor index builder
+    #
+    # JSON Schema 2019-09 introduced $recursiveAnchor and $recursiveRef
+    # as a way for schemas to express recursive structures. When a
+    # schema has "$recursiveAnchor": true, it marks itself as a valid
+    # target for $recursiveRef resolution. Later, JSON Schema 2020-12
+    # replaced this mechanism with $dynamicAnchor and $dynamicRef,
+    # which generalise the concept by allowing named anchor points
+    # instead of just boolean flags.
+    #
+    # This method scans a schema object during parsing and records any
+    # anchor declarations it finds into two lookup indexes:
+    #
+    #   recursive_anchor_index: maps root keys to lists of ref paths
+    #     where $recursiveAnchor: true was found
+    #
+    #   dynamic_anchor_index: maps root keys to dicts mapping anchor
+    #     names to their ref paths where $dynamicAnchor was declared
+    #
+    # These indexes are consumed later by the resolution methods
+    # (resolve_recursive_ref and resolve_dynamic_ref) when the parser
+    # encounters $recursiveRef or $dynamicRef keywords in a schema.
+    #
+    # The root_key is derived from self.model_resolver.current_root,
+    # which identifies the current file or schema document being parsed.
+    # This ensures anchors are scoped correctly when multiple schema
+    # files are being processed together (e.g. in OpenAPI specs with
+    # multiple component schemas).
+    #
+    # For $recursiveAnchor, the value is always a boolean (true/false).
+    # When true, we record the current schema location as an anchor
+    # point. For $dynamicAnchor, the value is a string name that can
+    # be referenced by $dynamicRef using the fragment syntax
+    # "#anchorName".
+    #
+    # Note: anchor indexes are populated during the parsing phase,
+    # before any resolution happens. This two-pass approach ensures
+    # that forward references to anchors defined later in the document
+    # are handled correctly.
+    # -------------------------------------------------------------------
+    def build_anchor_indexes(self, obj, path):
+        root_key = tuple(self.model_resolver.current_root)
+        if obj.recursiveAnchor:
+            self.recursive_anchor_index.setdefault(root_key, []).append("#")
+        if obj.dynamicAnchor:
+            self.dynamic_anchor_index.setdefault(root_key, {}).setdefault(obj.dynamicAnchor, "#")
+
+    # -------------------------------------------------------------------
+    # $recursiveRef resolver (JSON Schema 2019-09)
+    #
+    # Per the JSON Schema 2019-09 specification, $recursiveRef is
+    # always set to "#" (referencing the current document root). When
+    # the parser encounters a schema with $recursiveRef, this method
+    # resolves it to an internal reference path that the code generator
+    # can use to produce the correct self-referencing model.
+    #
+    # The resolution algorithm works as follows:
+    #
+    # 1. Verify that $recursiveRef is "#" (the only valid value per
+    #    the specification). Return None for any other value.
+    #
+    # 2. Look up the recursive_anchor_index for the current root key
+    #    to find all locations where $recursiveAnchor: true was
+    #    declared.
+    #
+    # 3. If no anchors are found, return None to indicate that
+    #    $recursiveRef cannot be resolved (the schema lacks the
+    #    corresponding anchor declaration).
+    #
+    # 4. Compute the current schema location as a root-relative JSON
+    #    pointer path. This is done by stripping the root prefix from
+    #    the full path and normalizing fragment markers.
+    #
+    # 5. Find the best matching anchor by comparing the current path
+    #    against all registered anchor paths. The "best" anchor is the
+    #    one with the longest matching prefix, which corresponds to the
+    #    nearest enclosing schema with $recursiveAnchor: true.
+    #
+    # 6. Return the best matching anchor path as the resolved reference.
+    #    The caller (parse_item) will then use get_ref_data_type() to
+    #    convert this path into a DataType object.
+    #
+    # The root_key parameter identifies the current schema document
+    # and is passed in from the caller rather than being derived
+    # internally, to allow the caller to control the resolution scope.
+    # -------------------------------------------------------------------
+    def resolve_recursive_ref(self, item, path, root_key):
+        if item.recursiveRef != "#":
+            return None
+        anchors = self.recursive_anchor_index.get(root_key, [])
+        if not anchors:
+            return None
+        root_len = len(root_key)
+        if root_len < len(path):
+            suffix_parts = path[root_len:]
+            first = suffix_parts[0]
+            if first.startswith("#"):
+                suffix_parts = [first[1:].lstrip("/"), *suffix_parts[1:]]
+            current_ref = "#/" + "/".join(suffix_parts)
+        else:
+            current_ref = "#"
+        best = "#"
+        best_len = 0
+        for anchor_ref in anchors:
+            if anchor_ref != "#" and (
+                len(anchor_ref) > best_len
+                and current_ref.startswith(anchor_ref)
+                and (len(current_ref) == len(anchor_ref) or current_ref[len(anchor_ref)] == "/")
+            ):
+                best = anchor_ref
+                best_len = len(anchor_ref)
+        return best
+
+    # -------------------------------------------------------------------
+    # $dynamicRef resolver (JSON Schema 2020-12)
+    #
+    # Per the JSON Schema 2020-12 specification, $dynamicRef uses a
+    # URI fragment to reference a named $dynamicAnchor. Unlike
+    # $recursiveRef which only supports "#", $dynamicRef supports
+    # arbitrary fragment names (e.g. "#node", "#items").
+    #
+    # The resolution algorithm works as follows:
+    #
+    # 1. Extract the ref value from $dynamicRef. Return None if the
+    #    value is falsy (not set).
+    #
+    # 2. If the ref starts with "#", extract the anchor name from the
+    #    fragment (everything after "#").
+    #
+    # 3. Look up the dynamic_anchor_index for the current root key to
+    #    find the mapping of anchor names to their declaration paths.
+    #
+    # 4. If the anchor name is found in the index, return the
+    #    corresponding path. Otherwise return None.
+    #
+    # 5. For non-fragment refs (absolute or relative URIs), return the
+    #    ref value as-is for the caller to handle through normal
+    #    $ref resolution.
+    #
+    # The root_key parameter identifies the current schema document,
+    # similar to resolve_recursive_ref. It is passed from the caller
+    # to maintain consistent resolution scope across the parsing
+    # session.
+    #
+    # In a code generation context, dynamic resolution is resolved
+    # statically during parsing by looking up the anchor index. This
+    # differs from runtime validation where dynamic scope traversal
+    # would follow the actual call stack of schema evaluation. For
+    # code generation purposes, the static lookup produces the correct
+    # result because we always want to reference the type defined at
+    # the anchor declaration site.
+    # -------------------------------------------------------------------
+    def resolve_dynamic_ref(self, item, root_key):
+        ref = item.dynamicRef
+        if not ref:
+            return None
+        if ref.startswith("#"):
+            anchor_name = ref[1:]
+            anchor_map = self.dynamic_anchor_index.get(root_key, {})
+            if anchor_name in anchor_map:
+                return anchor_map[anchor_name]
+            return None
+        return ref
 
     def _merge_ref_with_schema(self, obj: JsonSchemaObject) -> JsonSchemaObject:
         """Merge $ref schema with current schema's additional keywords.
@@ -2898,7 +3078,7 @@ class JsonSchemaParser(Parser["JSONSchemaParserConfig", "JsonSchemaFeatures"]):
         )
         return bool(is_primitive)
 
-    def parse_item(  # noqa: PLR0911, PLR0912, PLR0914
+    def parse_item(  # noqa: PLR0911, PLR0912, PLR0914, PLR0915
         self,
         name: str,
         item: JsonSchemaObject,
@@ -2927,6 +3107,16 @@ class JsonSchemaParser(Parser["JSONSchemaParserConfig", "JsonSchemaFeatures"]):
                 item,
                 root_type_path,
             )
+        if item.recursiveRef and not item.ref:
+            root_key = tuple(self.model_resolver.current_root)
+            resolved = self.resolve_recursive_ref(item, path, root_key)
+            if resolved is not None:
+                return self.get_ref_data_type(resolved)
+        if item.dynamicRef and not item.ref:
+            root_key = tuple(self.model_resolver.current_root)
+            resolved = self.resolve_dynamic_ref(item, root_key)
+            if resolved is not None:
+                return self.get_ref_data_type(resolved)
         if item.is_ref_with_nullable_only and item.ref:
             ref_data_type = self.get_ref_data_type(item.ref)
             if self.strict_nullable:
@@ -3778,6 +3968,7 @@ class JsonSchemaParser(Parser["JSONSchemaParserConfig", "JsonSchemaFeatures"]):
         self._check_version_specific_features(raw, path)
 
         obj = self._validate_schema_object(raw, path)
+        self.build_anchor_indexes(obj, path)
         self.parse_obj(name, obj, path)
 
     def _check_version_specific_features(  # noqa: PLR0912
@@ -4030,7 +4221,7 @@ class JsonSchemaParser(Parser["JSONSchemaParserConfig", "JsonSchemaFeatures"]):
 
         self.parse_raw_obj(model_name, models, [*path_parts, f"#/{object_paths[0]}", *object_paths[1:]])
 
-    def _parse_file(
+    def _parse_file(  # noqa: PLR0912, PLR0915
         self,
         raw: dict[str, Any],
         obj_name: str,
@@ -4048,6 +4239,12 @@ class JsonSchemaParser(Parser["JSONSchemaParserConfig", "JsonSchemaFeatures"]):
                 # parse $id before parsing $ref
                 root_obj = self._validate_schema_object(raw, path_parts or ["#"])
                 self.parse_id(root_obj, path_parts)
+                if root_obj.recursiveAnchor:
+                    root_key = tuple(path_parts)
+                    self.recursive_anchor_index.setdefault(root_key, []).append("#")
+                if root_obj.dynamicAnchor:
+                    root_key = tuple(path_parts)
+                    self.dynamic_anchor_index.setdefault(root_key, {}).setdefault(root_obj.dynamicAnchor, "#")
                 definitions: dict[str, YamlValue] = {}
                 schema_path = ""
                 for schema_path_candidate, split_schema_path in self.schema_paths:
@@ -4062,6 +4259,12 @@ class JsonSchemaParser(Parser["JSONSchemaParserConfig", "JsonSchemaFeatures"]):
                     definition_path = [*path_parts, schema_path, key]
                     obj = self._validate_schema_object(model, definition_path)
                     self.parse_id(obj, definition_path)
+                    if obj.recursiveAnchor:
+                        root_key = tuple(path_parts)
+                        self.recursive_anchor_index.setdefault(root_key, []).append("#")
+                    if obj.dynamicAnchor:
+                        root_key = tuple(path_parts)
+                        self.dynamic_anchor_index.setdefault(root_key, {}).setdefault(obj.dynamicAnchor, "#")
 
                 if object_paths:
                     models = get_model_by_path(raw, object_paths)

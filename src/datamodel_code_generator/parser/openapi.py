@@ -52,6 +52,9 @@ if TYPE_CHECKING:
 
 RE_APPLICATION_JSON_PATTERN: Pattern[str] = re.compile(r"^application/.*json$")
 
+# Recursive reference support requires awareness of the OpenAPI context
+SUPPORTS_RECURSIVE_REFS = True
+
 OPERATION_NAMES: list[str] = [
     "get",
     "put",
