@@ -1,0 +1,53 @@
+openapi: "3.1.0"
+info:
+  title: Test
+  version: "1.0"
+paths: {}
+components:
+  schemas:
+    WandbConfig:
+      type: object
+      properties:
+        project:
+          type: string
+    FineTuningIntegration:
+      type: object
+      required:
+        - type
+        - wandb
+      properties:
+        type:
+          type: string
+          enum:
+            - wandb
+        wandb:
+          $ref: '#/components/schemas/WandbConfig'
+    CreateFineTuningJobRequest:
+      type: object
+      required:
+        - model
+        - training_file
+      properties:
+        model:
+          type: string
+        training_file:
+          type: string
+        integrations:
+          type: array
+          items:
+            oneOf:
+              - $ref: '#/components/schemas/FineTuningIntegration'
+            discriminator:
+              propertyName: type
+    FineTuningJob:
+      type: object
+      properties:
+        id:
+          type: string
+        integrations:
+          anyOf:
+            - type: array
+              items:
+                oneOf:
+                  - $ref: '#/components/schemas/FineTuningIntegration'
+            - type: 'null'
