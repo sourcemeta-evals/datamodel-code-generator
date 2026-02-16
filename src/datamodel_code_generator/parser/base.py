@@ -951,6 +951,84 @@ class Parser(ABC):
                     if has_imported_literal:  # pragma: no cover
                         imports.append(IMPORT_LITERAL)
 
+        self.__apply_discriminator_type_from_parent(models, imports)
+
+    def __apply_discriminator_type_from_parent(
+        self,
+        models: list[DataModel],
+        imports: Imports,
+    ) -> None:
+        for model in models:
+            disc_info = self.extra_template_data.get(model.path, {}).get("discriminator")
+            if not disc_info or not isinstance(disc_info, dict):
+                continue
+            property_name = disc_info.get("propertyName")
+            if not property_name:
+                continue
+            mapping = disc_info.get("mapping")
+            if not mapping:
+                continue
+
+            field_name, alias = self.model_resolver.get_valid_field_name_and_alias(
+                field_name=property_name
+            )
+
+            ref_to_value: dict[str, str] = {}
+            for disc_value, ref_path in mapping.items():
+                normalized = ref_path.split("#/")[-1]
+                ref_to_value[normalized] = disc_value
+
+            for child_model in models:
+                if child_model is model:
+                    continue
+                is_child = any(
+                    bc.reference and bc.reference.source is model
+                    for bc in child_model.base_classes
+                )
+                if not is_child:
+                    continue
+
+                child_path_suffix = child_model.path.split("#/")[-1]
+                type_name = ref_to_value.get(child_path_suffix)
+
+                if type_name is None:
+                    child_name = child_path_suffix.split("/")[-1]
+                    for ref_path_suffix, value in ref_to_value.items():
+                        if ref_path_suffix.split("/")[-1] == child_name:
+                            type_name = value
+                            break
+
+                if type_name is None:
+                    continue
+
+                has_field = False
+                for child_field in child_model.fields:
+                    if field_name not in {child_field.original_name, child_field.name}:
+                        continue
+                    literals = child_field.data_type.literals
+                    if len(literals) == 1 and literals[0] == type_name:
+                        has_field = True
+                        break
+                    for field_data_type in child_field.data_type.all_data_types:
+                        if field_data_type.reference:
+                            field_data_type.remove_reference()
+                    child_field.data_type = self.data_type(literals=[type_name])
+                    child_field.data_type.parent = child_field
+                    child_field.required = True
+                    imports.append(child_field.imports)
+                    has_field = True
+                    break
+
+                if not has_field:
+                    new_field = self.data_model_field_type(
+                        name=field_name,
+                        data_type=self.data_type(literals=[type_name]),
+                        required=True,
+                        alias=alias,
+                    )
+                    child_model.fields.insert(0, new_field)
+                    imports.append(new_field.imports)
+
     @classmethod
     def _create_set_from_list(cls, data_type: DataType) -> DataType | None:
         if data_type.is_list:

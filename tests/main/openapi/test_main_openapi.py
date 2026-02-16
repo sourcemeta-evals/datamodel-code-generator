@@ -1462,6 +1462,17 @@ def test_main_openapi_discriminator(input_: str, output: str, output_file: Path)
     )
 
 
+def test_main_openapi_discriminator_allof(output_file: Path) -> None:
+    """Test OpenAPI generation with discriminator and allOf inheritance."""
+    run_main_and_assert(
+        input_path=OPEN_API_DATA_PATH / "discriminator_allof.yaml",
+        output_path=output_file,
+        input_file_type="openapi",
+        assert_func=assert_file_content,
+        expected_file=EXPECTED_OPENAPI_PATH / "discriminator" / "allof.py",
+    )
+
+
 @freeze_time("2023-07-27")
 @pytest.mark.parametrize(
     ("kind", "option", "expected"),

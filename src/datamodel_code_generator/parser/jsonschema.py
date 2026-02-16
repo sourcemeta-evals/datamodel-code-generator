@@ -1147,6 +1147,16 @@ class JsonSchemaParser(Parser):
 
         self.set_additional_properties(reference.path, obj)
 
+        if obj.discriminator:
+            disc = obj.discriminator
+            if isinstance(disc, Discriminator):
+                disc_dict: dict[str, Any] = {"propertyName": disc.propertyName}
+                if disc.mapping:
+                    disc_dict["mapping"] = disc.mapping
+            else:
+                disc_dict = {"propertyName": disc}
+            self.extra_template_data[reference.path]["discriminator"] = disc_dict
+
         data_model_type = self._create_data_model(
             model_type=data_model_type_class,
             reference=reference,
