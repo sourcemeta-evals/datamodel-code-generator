@@ -576,6 +576,7 @@ class Parser(ABC):
         self.default_field_extras: dict[str, Any] | None = default_field_extras
         self.formatters: list[Formatter] = formatters
         self.type_mappings: dict[tuple[str, str], str] = Parser._parse_type_mappings(type_mappings)
+        self._schema_discriminators: dict[str, tuple[str, dict[str, str]]] = {}
 
     @staticmethod
     def _parse_type_mappings(type_mappings: list[str] | None) -> dict[tuple[str, str], str]:
@@ -950,6 +951,59 @@ class Parser(ABC):
                     has_imported_literal = any(import_ == IMPORT_LITERAL for import_ in imports)
                     if has_imported_literal:  # pragma: no cover
                         imports.append(IMPORT_LITERAL)
+
+        for model in models:
+            for base_class in model.base_classes:
+                if not base_class.reference:
+                    continue
+                base_path = base_class.reference.path
+                if base_path not in self._schema_discriminators:
+                    continue
+                property_name, mapping = self._schema_discriminators[base_path]
+                field_name, alias = self.model_resolver.get_valid_field_name_and_alias(
+                    field_name=property_name
+                )
+
+                type_name: str | None = None
+                for key, ref_path in mapping.items():
+                    model_path_suffix = model.path.split("#/")[-1] if "#/" in model.path else model.path
+                    ref_path_suffix = ref_path.split("#/")[-1] if "#/" in ref_path else ref_path
+                    if model_path_suffix == ref_path_suffix:
+                        type_name = key
+                        break
+                    if ref_path.split("/")[-1] == model.path.split("/")[-1]:
+                        type_name = key
+                        break
+
+                if not type_name:
+                    continue
+
+                has_one_literal = False
+                for discriminator_field in model.fields:
+                    if field_name not in {discriminator_field.original_name, discriminator_field.name}:
+                        continue
+                    literals = discriminator_field.data_type.literals
+                    if len(literals) == 1 and literals[0] == type_name:
+                        has_one_literal = True
+                        break
+                    for field_data_type in discriminator_field.data_type.all_data_types:
+                        if field_data_type.reference:
+                            field_data_type.remove_reference()
+                    discriminator_field.data_type = self.data_type(literals=[type_name])
+                    discriminator_field.data_type.parent = discriminator_field
+                    discriminator_field.required = True
+                    imports.append(discriminator_field.imports)
+                    has_one_literal = True
+                    break
+                if not has_one_literal:
+                    new_field = self.data_model_field_type(
+                        name=field_name,
+                        data_type=self.data_type(literals=[type_name]),
+                        required=True,
+                        alias=alias,
+                    )
+                    model.fields.append(new_field)
+                    imports.append(new_field.imports)
 
     @classmethod
     def _create_set_from_list(cls, data_type: DataType) -> DataType | None:

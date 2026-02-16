@@ -1147,6 +1147,18 @@ class JsonSchemaParser(Parser):
 
         self.set_additional_properties(reference.path, obj)
 
+        if (
+            obj.discriminator
+            and isinstance(obj.discriminator, Discriminator)
+            and obj.discriminator.mapping
+            and not obj.oneOf
+            and not obj.anyOf
+        ):
+            self._schema_discriminators[reference.path] = (
+                obj.discriminator.propertyName,
+                obj.discriminator.mapping,
+            )
+
         data_model_type = self._create_data_model(
             model_type=data_model_type_class,
             reference=reference,
