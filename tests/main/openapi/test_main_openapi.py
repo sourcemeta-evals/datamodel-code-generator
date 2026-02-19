@@ -4343,6 +4343,17 @@ def test_main_openapi_x_enum_names(output_file: Path) -> None:
     )
 
 
+def test_main_openapi_x_property_names(output_file: Path) -> None:
+    """Test OpenAPI 3.0 generation with x-propertyNames extension for dict key constraints."""
+    run_main_and_assert(
+        input_path=OPEN_API_DATA_PATH / "x_property_names.yaml",
+        output_path=output_file,
+        input_file_type="openapi",
+        assert_func=assert_file_content,
+        expected_file="x_property_names.py",
+    )
+
+
 def test_main_enum_builtin_conflict(output_file: Path) -> None:
     """Test enum member names that conflict with str methods get underscore suffix."""
     with freeze_time(TIMESTAMP):

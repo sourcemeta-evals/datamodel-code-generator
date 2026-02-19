@@ -5961,3 +5961,37 @@ def test_main_use_root_model_type_alias(output_file: Path) -> None:
             "3.10",
         ],
     )
+
+
+def test_main_property_names_pattern(output_file: Path) -> None:
+    """Test JSON Schema propertyNames with pattern constraint generates constrained dict keys."""
+    run_main_and_assert(
+        input_path=JSON_SCHEMA_DATA_PATH / "property_names_pattern.json",
+        output_path=output_file,
+        input_file_type="jsonschema",
+        assert_func=assert_file_content,
+        expected_file="property_names_pattern.py",
+    )
+
+
+def test_main_property_names_pattern_pydantic_v2(output_file: Path) -> None:
+    """Test JSON Schema propertyNames with pattern constraint for pydantic v2."""
+    run_main_and_assert(
+        input_path=JSON_SCHEMA_DATA_PATH / "property_names_pattern.json",
+        output_path=output_file,
+        input_file_type="jsonschema",
+        assert_func=assert_file_content,
+        expected_file="property_names_pattern_pydantic_v2.py",
+        extra_args=["--output-model-type", "pydantic_v2.BaseModel"],
+    )
+
+
+def test_main_x_property_names(output_file: Path) -> None:
+    """Test x-propertyNames extension promotes to propertyNames for OpenAPI 3.0 compat."""
+    run_main_and_assert(
+        input_path=JSON_SCHEMA_DATA_PATH / "x_property_names.json",
+        output_path=output_file,
+        input_file_type="jsonschema",
+        assert_func=assert_file_content,
+        expected_file="x_property_names.py",
+    )

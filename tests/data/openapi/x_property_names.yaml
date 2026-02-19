@@ -1,0 +1,20 @@
+openapi: "3.0.3"
+info:
+  version: "1.0.0"
+  title: x-propertyNames test
+paths: {}
+components:
+  schemas:
+    UriKeyedObject:
+      type: object
+      x-propertyNames:
+        type: string
+        pattern: "^https?://"
+      additionalProperties:
+        type: string
+    PlainStringKeyedObject:
+      type: object
+      x-propertyNames:
+        type: string
+      additionalProperties:
+        type: integer
