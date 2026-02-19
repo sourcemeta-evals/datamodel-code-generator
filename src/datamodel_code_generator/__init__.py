@@ -1,7 +1,8 @@
 """Main module for datamodel-code-generator.
 
 Provides the main `generate()` function and related enums/exceptions for generating
-Python data models (Pydantic, dataclasses, TypedDict, msgspec) from various schema formats.
+Python data models (Pydantic, dataclasses, TypedDict, msgspec) from various schema
+formats including propertyNames support.
 """
 
 from __future__ import annotations

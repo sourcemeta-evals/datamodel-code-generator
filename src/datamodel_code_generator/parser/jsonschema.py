@@ -20,6 +20,7 @@ from warnings import warn
 from pydantic import (
     Field,
 )
+import re  # noqa: F401
 
 from datamodel_code_generator import (
     DEFAULT_SHARED_MODULE_NAME,
@@ -273,6 +274,10 @@ class JsonSchemaObject(BaseModel):
             del values["minimum"]
         elif exclusive_minimum is False:
             del values["exclusiveMinimum"]
+        if "x-propertyNames" in values and "propertyNames" not in values:
+            x_pn = values.pop("x-propertyNames")
+            if isinstance(x_pn, dict):
+                values["propertyNames"] = x_pn
         return values
 
     @field_validator("ref")
@@ -342,6 +347,7 @@ class JsonSchemaObject(BaseModel):
     exclusiveMinimum: Optional[Union[float, bool]] = None  # noqa: N815, UP007, UP045
     additionalProperties: Optional[Union[JsonSchemaObject, bool]] = None  # noqa: N815, UP007, UP045
     patternProperties: Optional[dict[str, Union[JsonSchemaObject, bool]]] = None  # noqa: N815, UP007, UP045
+    propertyNames: Optional[JsonSchemaObject] = None  # noqa: N815, UP045
     oneOf: list[JsonSchemaObject] = []  # noqa: N815, RUF012
     anyOf: list[JsonSchemaObject] = []  # noqa: N815, RUF012
     allOf: list[JsonSchemaObject] = []  # noqa: N815, RUF012
@@ -1597,6 +1603,8 @@ class JsonSchemaParser(Parser):
             return False
         if obj.patternProperties:
             return False
+        if obj.propertyNames:
+            return False
         if obj.type == "object":
             return False
         return not obj.enum or self.ignore_enum_constraints
@@ -2349,6 +2357,313 @@ class JsonSchemaParser(Parser):
 
         return self.data_type(data_types=data_types)
 
+    def _handle_pn(
+        self,
+        name,
+        property_names,
+        additional_properties,
+        path,
+    ):
+        # First we need to determine the value type for the dict
+        # We check if additionalProperties is a JsonSchemaObject
+        # If it is, we parse it to get the value type
+        # Otherwise we fall back to Any
+        if isinstance(additional_properties, JsonSchemaObject):
+            # Parse the additional properties to get value type
+            value_type = self.parse_item(
+                name,
+                additional_properties,
+                get_special_path("propertyNames/value", path),
+            )
+        else:
+            # Fall back to Any when no additional properties
+            value_type = self.data_type_manager.get_data_type(Types.any)
+
+        # Now determine the key type based on propertyNames constraints
+        # There are three possible cases:
+        # 1. enum constraint -> Literal type
+        # 2. pattern/minLength/maxLength -> constr type
+        # 3. no constraints -> plain str
+        key_type = None
+
+        # Check for enum constraint first
+        if property_names.enum is not None and len(property_names.enum) > 0:
+            string_enums = []
+            for item in property_names.enum:
+                if isinstance(item, str):
+                    string_enums.append(item)
+            if len(string_enums) > 0:
+                key_type = self.data_type(literals=string_enums)
+            else:
+                key_type = self.data_type_manager.get_data_type(Types.string)
+
+        elif (
+            property_names.pattern is not None
+            or property_names.minLength is not None
+            or property_names.maxLength is not None
+        ):
+            kwargs: dict[str, Any] = {}
+            if property_names.pattern is not None:
+                if not self.field_constraints:
+                    kwargs["pattern"] = property_names.pattern
+            if property_names.minLength is not None:
+                kwargs["minLength"] = property_names.minLength
+            if property_names.maxLength is not None:
+                kwargs["maxLength"] = property_names.maxLength
+
+            key_type = self.data_type_manager.get_data_type(
+                Types.string,
+                **kwargs,
+            )
+
+        else:
+            key_type = self.data_type_manager.get_data_type(Types.string)
+
+        result = self.data_type(
+            data_types=[value_type],
+            is_dict=True,
+            dict_key=key_type,
+        )
+
+        return result
+
+    def _pn_key_type_from_enum(self, enum_values):
+        string_enums = []
+        for v in enum_values:
+            if isinstance(v, str):
+                string_enums.append(v)
+        if len(string_enums) > 0:
+            return self.data_type(literals=string_enums)
+        return self.data_type_manager.get_data_type(Types.string)
+
+    def _pn_key_type_from_constraints(self, property_names):
+        kwargs: dict[str, Any] = {}
+        if property_names.pattern is not None:
+            if not self.field_constraints:
+                kwargs["pattern"] = property_names.pattern
+        if property_names.minLength is not None:
+            kwargs["minLength"] = property_names.minLength
+        if property_names.maxLength is not None:
+            kwargs["maxLength"] = property_names.maxLength
+        return self.data_type_manager.get_data_type(
+            Types.string,
+            **kwargs,
+        )
+
+    def _pn_value_type(self, name, additional_properties, path):
+        if isinstance(additional_properties, JsonSchemaObject):
+            return self.parse_item(
+                name,
+                additional_properties,
+                get_special_path("propertyNames/value", path),
+            )
+        return self.data_type_manager.get_data_type(Types.any)
+
+    def _has_property_names_constraints(self, property_names):
+        if property_names is None:
+            return False
+        if property_names.enum is not None and len(property_names.enum) > 0:
+            return True
+        if property_names.pattern is not None:
+            return True
+        if property_names.minLength is not None:
+            return True
+        if property_names.maxLength is not None:
+            return True
+        return False
+
+    def _validate_property_names_schema(self, property_names):
+        # Validate that the propertyNames schema is well-formed
+        # and contains only supported constraint types
+        if property_names is None:
+            return False
+        if not isinstance(property_names, JsonSchemaObject):
+            return False
+        # Check if the schema has a valid type
+        has_valid_type = True
+        if property_names.type is not None:
+            if isinstance(property_names.type, list):
+                for type_value in property_names.type:
+                    if type_value != "string":
+                        has_valid_type = False
+                        break
+            elif property_names.type != "string":
+                has_valid_type = False
+        # Check for supported constraints
+        has_enum = property_names.enum is not None and len(property_names.enum) > 0
+        has_pattern = property_names.pattern is not None
+        has_min_length = property_names.minLength is not None
+        has_max_length = property_names.maxLength is not None
+        has_any_constraint = has_enum or has_pattern or has_min_length or has_max_length
+        # Return True if the schema is valid
+        if has_valid_type and has_any_constraint:
+            return True
+        if has_valid_type and not has_any_constraint:
+            return True
+        return False
+
+    def _extract_property_names_constraints(self, property_names):
+        # Extract all constraints from a propertyNames schema
+        # Returns a dictionary of constraint name to constraint value
+        constraints = {}
+        if property_names is None:
+            return constraints
+        if property_names.enum is not None and len(property_names.enum) > 0:
+            # Filter to only string enum values
+            string_values = []
+            for value in property_names.enum:
+                if isinstance(value, str):
+                    string_values.append(value)
+            if len(string_values) > 0:
+                constraints["enum"] = string_values
+            else:
+                constraints["enum"] = []
+        if property_names.pattern is not None:
+            constraints["pattern"] = property_names.pattern
+        if property_names.minLength is not None:
+            constraints["minLength"] = property_names.minLength
+        if property_names.maxLength is not None:
+            constraints["maxLength"] = property_names.maxLength
+        return constraints
+
+    def _build_property_names_key_type(self, constraints):
+        # Build the key type for a propertyNames dict based on extracted constraints
+        if "enum" in constraints:
+            enum_values = constraints["enum"]
+            if len(enum_values) > 0:
+                return self.data_type(literals=enum_values)
+            return self.data_type_manager.get_data_type(Types.string)
+        # Check for pattern or length constraints
+        kwargs: dict[str, Any] = {}
+        if "pattern" in constraints:
+            if not self.field_constraints:
+                kwargs["pattern"] = constraints["pattern"]
+        if "minLength" in constraints:
+            kwargs["minLength"] = constraints["minLength"]
+        if "maxLength" in constraints:
+            kwargs["maxLength"] = constraints["maxLength"]
+        if len(kwargs) > 0:
+            return self.data_type_manager.get_data_type(Types.string, **kwargs)
+        return self.data_type_manager.get_data_type(Types.string)
+
+    def _build_property_names_result(self, key_type, value_type):
+        # Combine key and value types into a dict data type
+        result = self.data_type(
+            data_types=[value_type],
+            is_dict=True,
+            dict_key=key_type,
+        )
+        return result
+
+    def _resolve_property_names_value_type(self, name, obj, path):
+        # Resolve the value type for a propertyNames dict
+        # Uses additionalProperties if available, otherwise falls back to Any
+        if obj.additionalProperties is not None:
+            if isinstance(obj.additionalProperties, JsonSchemaObject):
+                return self.parse_item(
+                    name,
+                    obj.additionalProperties,
+                    get_special_path("propertyNames/value", path),
+                )
+            if isinstance(obj.additionalProperties, bool):
+                if obj.additionalProperties:
+                    return self.data_type_manager.get_data_type(Types.any)
+                return self.data_type_manager.get_data_type(Types.any)
+        return self.data_type_manager.get_data_type(Types.any)
+
+    def _merge_property_names_with_pattern_properties(self, property_names, pattern_properties):
+        # When both propertyNames and patternProperties are present
+        # merge the constraints from both
+        if property_names is None:
+            return None
+        if pattern_properties is None:
+            return property_names
+        # If patternProperties has a single key that matches the propertyNames pattern
+        # we can merge them
+        if len(pattern_properties) == 1:
+            pattern_key = next(iter(pattern_properties))
+            if property_names.pattern is not None:
+                # Check if the patterns are compatible
+                if re.match(property_names.pattern, pattern_key):
+                    return property_names
+        return property_names
+
+    def _get_property_names_type_string(self, property_names):
+        # Get a human-readable string describing the propertyNames type
+        # Used for debugging and error messages
+        if property_names is None:
+            return "none"
+        if property_names.enum is not None and len(property_names.enum) > 0:
+            values = []
+            for value in property_names.enum:
+                if isinstance(value, str):
+                    values.append(value)
+            if len(values) > 0:
+                return "Literal[" + ", ".join(repr(v) for v in values) + "]"
+            return "str"
+        if property_names.pattern is not None:
+            return "constr(pattern=" + repr(property_names.pattern) + ")"
+        parts = []
+        if property_names.minLength is not None:
+            parts.append("min_length=" + str(property_names.minLength))
+        if property_names.maxLength is not None:
+            parts.append("max_length=" + str(property_names.maxLength))
+        if len(parts) > 0:
+            return "constr(" + ", ".join(parts) + ")"
+        return "str"
+
+    def _should_use_literal_for_property_names(self, property_names):
+        # Determine if we should use Literal type for propertyNames
+        # This is the case when propertyNames has an enum with string values
+        if property_names is None:
+            return False
+        if property_names.enum is None:
+            return False
+        if len(property_names.enum) == 0:
+            return False
+        has_string = False
+        for value in property_names.enum:
+            if isinstance(value, str):
+                has_string = True
+                break
+        return has_string
+
+    def _should_use_constr_for_property_names(self, property_names):
+        # Determine if we should use constr type for propertyNames
+        # This is the case when propertyNames has pattern or length constraints
+        if property_names is None:
+            return False
+        if property_names.pattern is not None:
+            return True
+        if property_names.minLength is not None:
+            return True
+        if property_names.maxLength is not None:
+            return True
+        return False
+
+    def _filter_string_enum_values(self, enum_values):
+        # Filter enum values to only include strings
+        # JSON object keys must be strings, so non-string values are ignored
+        result = []
+        if enum_values is None:
+            return result
+        for value in enum_values:
+            if isinstance(value, str):
+                result.append(value)
+        return result
+
+    def _build_constr_kwargs_from_property_names(self, property_names):
+        # Build keyword arguments for constr from propertyNames constraints
+        kwargs: dict[str, Any] = {}
+        if property_names.pattern is not None:
+            if not self.field_constraints:
+                kwargs["pattern"] = property_names.pattern
+        if property_names.minLength is not None:
+            kwargs["minLength"] = property_names.minLength
+        if property_names.maxLength is not None:
+            kwargs["maxLength"] = property_names.maxLength
+        return kwargs
+
     def parse_item(  # noqa: PLR0911, PLR0912
         self,
         name: str,
@@ -2410,7 +2725,7 @@ class JsonSchemaParser(Parser):
                 all_of_path,
                 ignore_duplicate_model=True,
             )
-        if item.is_object or item.patternProperties:
+        if item.is_object or item.patternProperties or item.propertyNames:
             object_path = get_special_path("object", path)
             if item.properties:
                 if item.has_multiple_types and isinstance(item.type, list):
@@ -2428,6 +2743,8 @@ class JsonSchemaParser(Parser):
             if item.patternProperties:
                 # support only single key dict.
                 return self.parse_pattern_properties(name, item.patternProperties, object_path)
+            if item.propertyNames:
+                return self._handle_pn(name, item.propertyNames, item.additionalProperties, object_path)
             if isinstance(item.additionalProperties, JsonSchemaObject):
                 return self.data_type(
                     data_types=[self.parse_item(name, item.additionalProperties, object_path)],
@@ -2632,6 +2949,8 @@ class JsonSchemaParser(Parser):
                     data_type = data_types[0]
         elif obj.patternProperties:
             data_type = self.parse_pattern_properties(name, obj.patternProperties, path)
+        elif obj.propertyNames:
+            data_type = self._handle_pn(name, obj.propertyNames, obj.additionalProperties, path)
         elif obj.enum and not self.ignore_enum_constraints:
             if self.should_parse_enum_as_literal(obj):
                 data_type = self.parse_enum_as_literal(obj)
@@ -3047,6 +3366,8 @@ class JsonSchemaParser(Parser):
             for value in obj.patternProperties.values():
                 if isinstance(value, JsonSchemaObject):
                     self._traverse_schema_objects(value, path, callback, include_one_of=include_one_of)
+        if obj.propertyNames:
+            self._traverse_schema_objects(obj.propertyNames, path, callback, include_one_of=include_one_of)
         for item in obj.anyOf:
             self._traverse_schema_objects(item, path, callback, include_one_of=include_one_of)
         for item in obj.allOf:
@@ -3083,6 +3404,8 @@ class JsonSchemaParser(Parser):
             for value in obj.patternProperties.values():
                 if isinstance(value, JsonSchemaObject):
                     self.parse_id(value, path)
+        if obj.propertyNames:
+            self.parse_id(obj.propertyNames, path)
         for item in obj.anyOf:
             self.parse_id(item, path)
         for item in obj.allOf:
@@ -3168,7 +3491,7 @@ class JsonSchemaParser(Parser):
                 self._parse_multiple_types_with_properties(name, obj, obj.type, path)
             else:
                 self.parse_object(name, obj, path)
-        elif obj.patternProperties:
+        elif obj.patternProperties or obj.propertyNames:
             self.parse_root_type(name, obj, path)
         elif obj.type == "object":
             self.parse_object(name, obj, path)
