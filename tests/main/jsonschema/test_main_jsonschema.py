@@ -2514,6 +2514,29 @@ def test_jsonschema_pattern_properties_field_constraints(output_file: Path) -> N
     )
 
 
+def test_jsonschema_x_property_names(output_file: Path) -> None:
+    """Test x-propertyNames vendor extension for OpenAPI 3.0 compatibility."""
+    run_main_and_assert(
+        input_path=JSON_SCHEMA_DATA_PATH / "x_property_names.json",
+        output_path=output_file,
+        input_file_type="jsonschema",
+        assert_func=assert_file_content,
+        expected_file="x_property_names.py",
+    )
+
+
+def test_jsonschema_x_property_names_field_constraints(output_file: Path) -> None:
+    """Test x-propertyNames with field constraints drops the pattern from dict key."""
+    run_main_and_assert(
+        input_path=JSON_SCHEMA_DATA_PATH / "x_property_names.json",
+        output_path=output_file,
+        input_file_type="jsonschema",
+        assert_func=assert_file_content,
+        expected_file="x_property_names_field_constraints.py",
+        extra_args=["--field-constraints"],
+    )
+
+
 @LEGACY_BLACK_SKIP
 def test_jsonschema_titles(output_file: Path) -> None:
     """Test JSON Schema title handling."""

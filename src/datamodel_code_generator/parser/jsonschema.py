@@ -342,6 +342,8 @@ class JsonSchemaObject(BaseModel):
     exclusiveMinimum: Optional[Union[float, bool]] = None  # noqa: N815, UP007, UP045
     additionalProperties: Optional[Union[JsonSchemaObject, bool]] = None  # noqa: N815, UP007, UP045
     patternProperties: Optional[dict[str, Union[JsonSchemaObject, bool]]] = None  # noqa: N815, UP007, UP045
+    propertyNames: Optional[JsonSchemaObject] = None  # noqa: N815, UP045
+    x_property_names: Optional[JsonSchemaObject] = Field(default=None, alias="x-propertyNames")  # noqa: UP045
     oneOf: list[JsonSchemaObject] = []  # noqa: N815, RUF012
     anyOf: list[JsonSchemaObject] = []  # noqa: N815, RUF012
     allOf: list[JsonSchemaObject] = []  # noqa: N815, RUF012
@@ -389,6 +391,11 @@ class JsonSchemaObject(BaseModel):
         self.extras = {**alias_extras, **raw_extras}
         if "const" in alias_extras:  # pragma: no cover
             self.extras["const"] = alias_extras["const"]
+
+    @cached_property
+    def effective_property_names(self) -> JsonSchemaObject | None:
+        """Return the effective propertyNames schema, preferring propertyNames over x-propertyNames."""
+        return self.propertyNames if self.propertyNames is not None else self.x_property_names
 
     @cached_property
     def is_object(self) -> bool:
@@ -2247,6 +2254,7 @@ class JsonSchemaParser(Parser):
         if fields or not isinstance(obj.additionalProperties, JsonSchemaObject):
             data_model_type_class = self.data_model_type
         else:
+            dict_key = self._get_property_names_dict_key(obj)
             fields.append(
                 self.get_object_field(
                     field_name=None,
@@ -2263,6 +2271,7 @@ class JsonSchemaParser(Parser):
                             )
                         ],
                         is_dict=True,
+                        dict_key=dict_key,
                     ),
                     alias=None,
                 )
@@ -2300,6 +2309,16 @@ class JsonSchemaParser(Parser):
             self.results.append(data_model_type)
 
         return self.data_type(reference=reference)
+
+    def _get_property_names_dict_key(self, obj: JsonSchemaObject) -> DataType | None:
+        """Get a dict key DataType from propertyNames or x-propertyNames if a pattern is specified."""
+        prop_names = obj.effective_property_names
+        if prop_names is None or prop_names.pattern is None:
+            return None
+        return self.data_type_manager.get_data_type(
+            Types.string,
+            pattern=prop_names.pattern if not self.field_constraints else None,
+        )
 
     def parse_pattern_properties(
         self,
@@ -2429,9 +2448,11 @@ class JsonSchemaParser(Parser):
                 # support only single key dict.
                 return self.parse_pattern_properties(name, item.patternProperties, object_path)
             if isinstance(item.additionalProperties, JsonSchemaObject):
+                dict_key = self._get_property_names_dict_key(item)
                 return self.data_type(
                     data_types=[self.parse_item(name, item.additionalProperties, object_path)],
                     is_dict=True,
+                    dict_key=dict_key,
                 )
             return self.data_type_manager.get_data_type(
                 Types.object,
@@ -3047,6 +3068,8 @@ class JsonSchemaParser(Parser):
             for value in obj.patternProperties.values():
                 if isinstance(value, JsonSchemaObject):
                     self._traverse_schema_objects(value, path, callback, include_one_of=include_one_of)
+        if obj.effective_property_names is not None:
+            self._traverse_schema_objects(obj.effective_property_names, path, callback, include_one_of=include_one_of)
         for item in obj.anyOf:
             self._traverse_schema_objects(item, path, callback, include_one_of=include_one_of)
         for item in obj.allOf:
@@ -3083,6 +3106,8 @@ class JsonSchemaParser(Parser):
             for value in obj.patternProperties.values():
                 if isinstance(value, JsonSchemaObject):
                     self.parse_id(value, path)
+        if obj.effective_property_names is not None:
+            self.parse_id(obj.effective_property_names, path)
         for item in obj.anyOf:
             self.parse_id(item, path)
         for item in obj.allOf:
