@@ -257,9 +257,23 @@ class JsonSchemaObject(BaseModel):
 
     @model_validator(mode="before")
     def validate_exclusive_maximum_and_exclusive_minimum(cls, values: Any) -> Any:  # noqa: N805
-        """Validate and convert boolean exclusive maximum and minimum to numeric values."""
+        """Validate and convert boolean exclusive maximum and minimum to numeric values.
+
+        Also promotes x-patternProperties and x-propertyNames extension fields
+        to their standard JSON Schema equivalents so that OpenAPI 3.0 documents
+        using these extensions are handled identically to native JSON Schema.
+        """
         if not isinstance(values, dict):
             return values
+
+        # Promote x-patternProperties -> patternProperties
+        if "x-patternProperties" in values and "patternProperties" not in values:
+            values["patternProperties"] = values.pop("x-patternProperties")
+
+        # Promote x-propertyNames -> propertyNames
+        if "x-propertyNames" in values and "propertyNames" not in values:
+            values["propertyNames"] = values.pop("x-propertyNames")
+
         exclusive_maximum: float | bool | None = values.get("exclusiveMaximum")
         exclusive_minimum: float | bool | None = values.get("exclusiveMinimum")
 
@@ -342,6 +356,7 @@ class JsonSchemaObject(BaseModel):
     exclusiveMinimum: Optional[Union[float, bool]] = None  # noqa: N815, UP007, UP045
     additionalProperties: Optional[Union[JsonSchemaObject, bool]] = None  # noqa: N815, UP007, UP045
     patternProperties: Optional[dict[str, Union[JsonSchemaObject, bool]]] = None  # noqa: N815, UP007, UP045
+    propertyNames: Optional[Union[JsonSchemaObject, bool]] = None  # noqa: N815, UP007, UP045
     oneOf: list[JsonSchemaObject] = []  # noqa: N815, RUF012
     anyOf: list[JsonSchemaObject] = []  # noqa: N815, RUF012
     allOf: list[JsonSchemaObject] = []  # noqa: N815, RUF012
@@ -2301,6 +2316,25 @@ class JsonSchemaParser(Parser):
 
         return self.data_type(reference=reference)
 
+    def _get_dict_key_from_property_names(
+        self,
+        property_names: JsonSchemaObject | bool | None,
+    ) -> DataType | None:
+        """Extract a dict key DataType from a propertyNames schema.
+
+        If the propertyNames schema specifies a pattern, return a constrained
+        string type to use as the dict key.  Returns None when no useful
+        constraint can be derived.
+        """
+        if not isinstance(property_names, JsonSchemaObject):
+            return None
+        if property_names.pattern and not self.field_constraints:
+            return self.data_type_manager.get_data_type(
+                Types.string,
+                pattern=property_names.pattern,
+            )
+        return None
+
     def parse_pattern_properties(
         self,
         name: str,
@@ -2429,9 +2463,11 @@ class JsonSchemaParser(Parser):
                 # support only single key dict.
                 return self.parse_pattern_properties(name, item.patternProperties, object_path)
             if isinstance(item.additionalProperties, JsonSchemaObject):
+                dict_key = self._get_dict_key_from_property_names(item.propertyNames)
                 return self.data_type(
                     data_types=[self.parse_item(name, item.additionalProperties, object_path)],
                     is_dict=True,
+                    dict_key=dict_key,
                 )
             return self.data_type_manager.get_data_type(
                 Types.object,
@@ -3047,6 +3083,8 @@ class JsonSchemaParser(Parser):
             for value in obj.patternProperties.values():
                 if isinstance(value, JsonSchemaObject):
                     self._traverse_schema_objects(value, path, callback, include_one_of=include_one_of)
+        if isinstance(obj.propertyNames, JsonSchemaObject):
+            self._traverse_schema_objects(obj.propertyNames, path, callback, include_one_of=include_one_of)
         for item in obj.anyOf:
             self._traverse_schema_objects(item, path, callback, include_one_of=include_one_of)
         for item in obj.allOf:
@@ -3083,6 +3121,8 @@ class JsonSchemaParser(Parser):
             for value in obj.patternProperties.values():
                 if isinstance(value, JsonSchemaObject):
                     self.parse_id(value, path)
+        if isinstance(obj.propertyNames, JsonSchemaObject):
+            self.parse_id(obj.propertyNames, path)
         for item in obj.anyOf:
             self.parse_id(item, path)
         for item in obj.allOf:

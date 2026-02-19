@@ -1,0 +1,18 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "PropertyMetadata",
+  "type": "object",
+  "x-patternProperties": {
+    "^https://": {
+      "type": "object",
+      "properties": {
+        "value": {
+          "type": "string"
+        }
+      }
+    }
+  },
+  "x-propertyNames": {
+    "pattern": "^https://"
+  }
+}

@@ -2514,6 +2514,39 @@ def test_jsonschema_pattern_properties_field_constraints(output_file: Path) -> N
     )
 
 
+def test_jsonschema_x_pattern_properties(output_file: Path) -> None:
+    """Test x-patternProperties extension produces same output as patternProperties."""
+    run_main_and_assert(
+        input_path=JSON_SCHEMA_DATA_PATH / "x_pattern_properties.json",
+        output_path=output_file,
+        input_file_type="jsonschema",
+        assert_func=assert_file_content,
+        expected_file="x_pattern_properties.py",
+    )
+
+
+def test_jsonschema_x_property_names(output_file: Path) -> None:
+    """Test x-propertyNames extension constrains dict key type."""
+    run_main_and_assert(
+        input_path=JSON_SCHEMA_DATA_PATH / "x_property_names.json",
+        output_path=output_file,
+        input_file_type="jsonschema",
+        assert_func=assert_file_content,
+        expected_file="x_property_names.py",
+    )
+
+
+def test_jsonschema_x_pattern_properties_and_property_names(output_file: Path) -> None:
+    """Test x-patternProperties and x-propertyNames used together."""
+    run_main_and_assert(
+        input_path=JSON_SCHEMA_DATA_PATH / "x_pattern_properties_and_property_names.json",
+        output_path=output_file,
+        input_file_type="jsonschema",
+        assert_func=assert_file_content,
+        expected_file="x_pattern_properties_and_property_names.py",
+    )
+
+
 @LEGACY_BLACK_SKIP
 def test_jsonschema_titles(output_file: Path) -> None:
     """Test JSON Schema title handling."""
