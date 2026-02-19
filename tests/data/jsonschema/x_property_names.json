@@ -1,0 +1,34 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "Root",
+  "type": "object",
+  "definitions": {
+    "PatternKeyDict": {
+      "type": "object",
+      "x-propertyNames": {
+        "type": "string",
+        "pattern": "^[a-zA-Z_][a-zA-Z0-9_]*$"
+      },
+      "additionalProperties": {
+        "type": "string"
+      }
+    },
+    "SimpleStringDict": {
+      "type": "object",
+      "x-propertyNames": {
+        "type": "string"
+      },
+      "additionalProperties": {
+        "type": "integer"
+      }
+    }
+  },
+  "properties": {
+    "pattern_dict": {
+      "$ref": "#/definitions/PatternKeyDict"
+    },
+    "simple_dict": {
+      "$ref": "#/definitions/SimpleStringDict"
+    }
+  }
+}

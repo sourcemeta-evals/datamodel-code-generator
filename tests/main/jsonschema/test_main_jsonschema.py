@@ -5961,3 +5961,14 @@ def test_main_use_root_model_type_alias(output_file: Path) -> None:
             "3.10",
         ],
     )
+
+
+def test_main_jsonschema_x_property_names(output_file: Path) -> None:
+    """Test x-propertyNames extension maps to propertyNames for dict key typing."""
+    run_main_and_assert(
+        input_path=JSON_SCHEMA_DATA_PATH / "x_property_names.json",
+        output_path=output_file,
+        input_file_type="jsonschema",
+        assert_func=assert_file_content,
+        expected_file="x_property_names.py",
+    )
