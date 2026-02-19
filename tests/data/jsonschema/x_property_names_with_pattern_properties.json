@@ -1,0 +1,14 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "x-propertyNames": {
+    "type": "string",
+    "pattern": "^[a-z][a-z0-9]*$"
+  },
+  "x-patternProperties": {
+    "^[a-z]+$": {
+      "type": "string"
+    }
+  },
+  "title": "CombinedExtensions"
+}

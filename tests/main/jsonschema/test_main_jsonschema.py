@@ -2762,6 +2762,39 @@ def test_main_jsonschema_object_with_only_additional_properties(output_file: Pat
     )
 
 
+def test_main_jsonschema_x_property_names(output_file: Path) -> None:
+    """Test x-propertyNames extension for OpenAPI 3.0 compatibility."""
+    run_main_and_assert(
+        input_path=JSON_SCHEMA_DATA_PATH / "x_property_names.json",
+        output_path=output_file,
+        input_file_type="jsonschema",
+        assert_func=assert_file_content,
+        expected_file="x_property_names.py",
+    )
+
+
+def test_main_jsonschema_x_pattern_properties(output_file: Path) -> None:
+    """Test x-patternProperties extension for OpenAPI 3.0 compatibility."""
+    run_main_and_assert(
+        input_path=JSON_SCHEMA_DATA_PATH / "x_pattern_properties.json",
+        output_path=output_file,
+        input_file_type="jsonschema",
+        assert_func=assert_file_content,
+        expected_file="x_pattern_properties.py",
+    )
+
+
+def test_main_jsonschema_x_property_names_with_pattern_properties(output_file: Path) -> None:
+    """Test x-propertyNames combined with x-patternProperties."""
+    run_main_and_assert(
+        input_path=JSON_SCHEMA_DATA_PATH / "x_property_names_with_pattern_properties.json",
+        output_path=output_file,
+        input_file_type="jsonschema",
+        assert_func=assert_file_content,
+        expected_file="x_property_names_with_pattern_properties.py",
+    )
+
+
 def test_main_jsonschema_nullable_object(output_file: Path) -> None:
     """Test nullable object handling."""
     run_main_and_assert(
