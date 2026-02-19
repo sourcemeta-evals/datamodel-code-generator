@@ -1,0 +1,19 @@
+openapi: "3.0.0"
+info:
+  version: 1.0.0
+  title: x-propertyNames test
+paths: {}
+components:
+  schemas:
+    PatternKeyDict:
+      type: object
+      x-propertyNames:
+        pattern: "^[a-z][a-z0-9_]*$"
+      additionalProperties:
+        type: string
+    PlainKeyDict:
+      type: object
+      x-propertyNames:
+        type: string
+      additionalProperties:
+        type: integer
