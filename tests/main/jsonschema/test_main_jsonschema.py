@@ -5961,3 +5961,12 @@ def test_main_use_root_model_type_alias(output_file: Path) -> None:
             "3.10",
         ],
     )
+
+
+@freeze_time("2019-07-26")
+def test_main_jsonschema_property_names_pattern():
+    """Test that propertyNames with a pattern constraint generates a constr type."""
+    run_main_and_assert(
+        input_path=JSON_SCHEMA_DATA_PATH / "property_names_pattern.json",
+        expected_file="property_names_pattern.py",
+    )
