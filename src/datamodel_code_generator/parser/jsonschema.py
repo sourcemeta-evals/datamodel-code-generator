@@ -274,10 +274,6 @@ class JsonSchemaObject(BaseModel):
             del values["minimum"]
         elif exclusive_minimum is False:
             del values["exclusiveMinimum"]
-        if "x-propertyNames" in values and "propertyNames" not in values:
-            x_pn = values.pop("x-propertyNames")
-            if isinstance(x_pn, dict):
-                values["propertyNames"] = x_pn
         return values
 
     @field_validator("ref")
@@ -1603,8 +1599,6 @@ class JsonSchemaParser(Parser):
             return False
         if obj.patternProperties:
             return False
-        if obj.propertyNames:
-            return False
         if obj.type == "object":
             return False
         return not obj.enum or self.ignore_enum_constraints
@@ -2357,6 +2351,16 @@ class JsonSchemaParser(Parser):
 
         return self.data_type(data_types=data_types)
 
+    def _resolve_x_pn(self, obj):
+        # Check if x-propertyNames exists in extras and convert to propertyNames
+        if obj.propertyNames is not None:
+            return obj.propertyNames
+        if hasattr(obj, "extras") and isinstance(obj.extras, dict):
+            x_pn = obj.extras.get("x-propertyNames")
+            if isinstance(x_pn, dict):
+                return JsonSchemaObject.model_validate(x_pn)
+        return None
+
     def _handle_pn(
         self,
         name,
@@ -2725,7 +2729,8 @@ class JsonSchemaParser(Parser):
                 all_of_path,
                 ignore_duplicate_model=True,
             )
-        if item.is_object or item.patternProperties or item.propertyNames:
+        resolved_pn = self._resolve_x_pn(item)
+        if item.is_object or item.patternProperties or resolved_pn:
             object_path = get_special_path("object", path)
             if item.properties:
                 if item.has_multiple_types and isinstance(item.type, list):
@@ -2743,8 +2748,8 @@ class JsonSchemaParser(Parser):
             if item.patternProperties:
                 # support only single key dict.
                 return self.parse_pattern_properties(name, item.patternProperties, object_path)
-            if item.propertyNames:
-                return self._handle_pn(name, item.propertyNames, item.additionalProperties, object_path)
+            if resolved_pn:
+                return self._handle_pn(name, resolved_pn, item.additionalProperties, object_path)
             if isinstance(item.additionalProperties, JsonSchemaObject):
                 return self.data_type(
                     data_types=[self.parse_item(name, item.additionalProperties, object_path)],
@@ -2949,8 +2954,9 @@ class JsonSchemaParser(Parser):
                     data_type = data_types[0]
         elif obj.patternProperties:
             data_type = self.parse_pattern_properties(name, obj.patternProperties, path)
-        elif obj.propertyNames:
-            data_type = self._handle_pn(name, obj.propertyNames, obj.additionalProperties, path)
+        elif self._resolve_x_pn(obj):
+            resolved = self._resolve_x_pn(obj)
+            data_type = self._handle_pn(name, resolved, obj.additionalProperties, path)
         elif obj.enum and not self.ignore_enum_constraints:
             if self.should_parse_enum_as_literal(obj):
                 data_type = self.parse_enum_as_literal(obj)
@@ -3366,8 +3372,6 @@ class JsonSchemaParser(Parser):
             for value in obj.patternProperties.values():
                 if isinstance(value, JsonSchemaObject):
                     self._traverse_schema_objects(value, path, callback, include_one_of=include_one_of)
-        if obj.propertyNames:
-            self._traverse_schema_objects(obj.propertyNames, path, callback, include_one_of=include_one_of)
         for item in obj.anyOf:
             self._traverse_schema_objects(item, path, callback, include_one_of=include_one_of)
         for item in obj.allOf:
@@ -3404,8 +3408,6 @@ class JsonSchemaParser(Parser):
             for value in obj.patternProperties.values():
                 if isinstance(value, JsonSchemaObject):
                     self.parse_id(value, path)
-        if obj.propertyNames:
-            self.parse_id(obj.propertyNames, path)
         for item in obj.anyOf:
             self.parse_id(item, path)
         for item in obj.allOf:
@@ -3491,7 +3493,7 @@ class JsonSchemaParser(Parser):
                 self._parse_multiple_types_with_properties(name, obj, obj.type, path)
             else:
                 self.parse_object(name, obj, path)
-        elif obj.patternProperties or obj.propertyNames:
+        elif obj.patternProperties or self._resolve_x_pn(obj):
             self.parse_root_type(name, obj, path)
         elif obj.type == "object":
             self.parse_object(name, obj, path)
