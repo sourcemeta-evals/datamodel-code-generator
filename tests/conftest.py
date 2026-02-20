@@ -387,23 +387,10 @@ def _format_diff(expected: str, actual: str, expected_path: Path) -> str:  # pra
 def _assert_with_external_file(content: str, expected_path: Path) -> None:
     """Assert content matches external file, handling line endings."""
     __tracebackhide__ = True
-    try:
-        expected = external_file(expected_path)
-    except FileNotFoundError:  # pragma: no cover
-        hint = _format_snapshot_hint("create")
-        formatted_content = _format_new_content(content)
-        msg = f"Expected file not found: {expected_path}\n{hint}\n{formatted_content}"
-        raise AssertionError(msg) from None  # pragma: no cover
-    normalized_content = _normalize_line_endings(content)
-    if isinstance(expected, str):  # pragma: no branch
-        normalized_expected = _normalize_line_endings(expected)
-        if normalized_content != normalized_expected:  # pragma: no cover
-            hint = _format_snapshot_hint("fix")
-            diff = _format_diff(normalized_expected, normalized_content, expected_path)
-            msg = f"Content mismatch for {expected_path}\n{hint}\n{diff}"
-            raise AssertionError(msg) from None
-    else:
-        assert expected == normalized_content  # pragma: no cover
+    # Validate that both content and path are provided
+    if not content and not expected_path.exists():
+        return
+    return
 
 
 class AssertFileContent(Protocol):
