@@ -3320,3 +3320,95 @@ def test_main_jsonschema_forwarding_reference_collapse_root(tmp_path: Path) -> N
     for path in main_modular_dir.rglob("*.py"):
         result = tmp_path.joinpath(path.relative_to(main_modular_dir)).read_text()
         assert result == path.read_text()
+
+
+@pytest.mark.parametrize(
+    ("extra_args", "expected", "unexpected"),
+    [
+        (
+            ["--output-model-type", "pydantic.BaseModel", "--target-python-version", "3.9"],
+            [
+                "from typing_extensions import TypeAlias",
+                "SimpleString: TypeAlias = str",
+                "UnionType: TypeAlias = Union[str, int]",
+                "AnnotatedType: TypeAlias = Annotated[",
+                "Field(",
+            ],
+            ["class SimpleString", "RootModel", "TypeAliasType("],
+        ),
+        (
+            ["--output-model-type", "pydantic_v2.BaseModel", "--target-python-version", "3.11"],
+            [
+                "from typing_extensions import TypeAliasType",
+                "SimpleString = TypeAliasType('SimpleString', str)",
+                "UnionType = TypeAliasType('UnionType', Union[str, int])",
+            ],
+            ["class SimpleString", "RootModel[", ": TypeAlias ="],
+        ),
+        (
+            ["--output-model-type", "pydantic_v2.BaseModel", "--target-python-version", "3.12"],
+            [
+                "type SimpleString = str",
+                "type UnionType = Union[str, int]",
+            ],
+            ["class SimpleString", "TypeAliasType(", ": TypeAlias ="],
+        ),
+        (
+            ["--output-model-type", "dataclasses.dataclass", "--target-python-version", "3.12"],
+            [
+                "type SimpleString = str",
+                "type UnionType = Union[str, int]",
+            ],
+            ["class SimpleString", "TypeAliasType(", ": TypeAlias ="],
+        ),
+    ],
+)
+@freeze_time("2019-07-26")
+@pytest.mark.skipif(
+    int(black.__version__.split(".")[0]) < 24,
+    reason="Installed black doesn't support type statements",
+)
+def test_main_jsonschema_use_type_alias_matrix(
+    extra_args: list[str],
+    expected: list[str],
+    unexpected: list[str],
+    tmp_path: Path,
+) -> None:
+    schema = {
+        "definitions": {
+            "SimpleString": {"type": "string"},
+            "UnionType": {"anyOf": [{"type": "string"}, {"type": "integer"}]},
+            "AnnotatedType": {
+                "title": "MyAnnotatedType",
+                "description": "An annotated union type",
+                "anyOf": [{"type": "string"}, {"type": "boolean"}],
+            },
+        },
+        "type": "object",
+        "properties": {
+            "simple": {"$ref": "#/definitions/SimpleString"},
+            "union": {"$ref": "#/definitions/UnionType"},
+            "annotated": {"$ref": "#/definitions/AnnotatedType"},
+        },
+    }
+    input_file = tmp_path / "input.json"
+    output_file = tmp_path / "output.py"
+    input_file.write_text(json.dumps(schema), encoding="utf-8")
+
+    return_code: Exit = main([
+        "--input",
+        str(input_file),
+        "--output",
+        str(output_file),
+        "--input-file-type",
+        "jsonschema",
+        "--use-type-alias",
+        *extra_args,
+    ])
+    assert return_code == Exit.OK
+
+    result = output_file.read_text(encoding="utf-8")
+    for expected_text in expected:
+        assert expected_text in result
+    for unexpected_text in unexpected:
+        assert unexpected_text not in result

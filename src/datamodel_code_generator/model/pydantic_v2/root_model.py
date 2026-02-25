@@ -3,6 +3,7 @@ from __future__ import annotations
 from typing import Any, ClassVar, Literal
 
 from datamodel_code_generator.model.pydantic_v2.base_model import BaseModel
+from datamodel_code_generator.model.rootmodel import NativeTypeAliasRootModel, TypeAliasTypeRootModel
 
 
 class RootModel(BaseModel):
@@ -23,3 +24,11 @@ class RootModel(BaseModel):
     def _get_config_extra(self) -> Literal["'allow'", "'forbid'"] | None:  # noqa: PLR6301
         # PydanticV2 RootModels cannot have extra fields
         return None
+
+
+class RootModelTypeAliasType(TypeAliasTypeRootModel):
+    pass
+
+
+class RootModelNativeTypeAlias(NativeTypeAliasRootModel):
+    pass

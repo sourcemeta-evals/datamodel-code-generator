@@ -1,0 +1,20 @@
+{%- set field = fields[0] %}
+{%- if field.annotated %}
+{%- set value = field.annotated %}
+{%- elif field.field and field.field.startswith('Field(') %}
+{%- set value = 'Annotated[' ~ field.type_hint ~ ', ' ~ field.field ~ ']' %}
+{%- else %}
+{%- set value = field.type_hint %}
+{%- endif %}
+{%- if use_native_type_statement %}
+type {{ class_name }} = {{ value }}
+{%- elif use_type_alias_type %}
+{{ class_name }} = TypeAliasType('{{ class_name }}', {{ value }})
+{%- else %}
+{{ class_name }}: TypeAlias = {{ value }}
+{%- endif %}
+{%- if description %}
+"""
+{{ description }}
+"""
+{%- endif %}

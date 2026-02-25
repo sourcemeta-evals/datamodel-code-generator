@@ -53,6 +53,14 @@ class PythonVersion(Enum):
     def has_kw_only_dataclass(self) -> bool:
         return self._is_py_310_or_later
 
+    @property
+    def has_type_statement(self) -> bool:
+        return self.value in {
+            self.PY_312.value,
+            self.PY_313.value,
+            self.PY_314.value,
+        }
+
 
 PythonVersionMin = PythonVersion.PY_39
 
