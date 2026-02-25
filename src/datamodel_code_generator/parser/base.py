@@ -951,6 +951,102 @@ class Parser(ABC):
                     if has_imported_literal:  # pragma: no cover
                         imports.append(IMPORT_LITERAL)
 
+    def __apply_schema_level_discriminator_type(
+        self,
+        models: list[DataModel],
+        imports: Imports,
+    ) -> None:
+        """Apply discriminators defined at schema level (e.g., OpenAPI allOf + discriminator).
+
+        When a schema has a discriminator with mapping but no oneOf/anyOf (i.e., child
+        schemas reference it via allOf), this method sets the discriminator property on
+        each child model to a Literal type with the appropriate mapping key.
+        """
+        schema_level_discriminators: list[tuple[str, dict[str, str], list[str]]] = getattr(
+            self, "schema_level_discriminators", []
+        )
+        if not schema_level_discriminators:
+            return
+
+        # Build a lookup from model path suffix to model for efficient matching
+        model_by_path_suffix: dict[str, DataModel] = {}
+        for model in models:
+            # Store by the last part of the path (e.g., "components/schemas/Cat" or just "Cat")
+            path = model.path
+            if "#/" in path:
+                suffix = path.split("#/")[-1]
+            else:
+                suffix = path.split("/")[-1]
+            model_by_path_suffix[suffix] = model
+            # Also store by full path
+            model_by_path_suffix[path] = model
+
+        for property_name, mapping, _schema_path in schema_level_discriminators:
+            field_name, alias = self.model_resolver.get_valid_field_name_and_alias(field_name=property_name)
+
+            for disc_value, ref_path in mapping.items():
+                # Resolve the ref path to find the target model
+                # ref_path is like '#/components/schemas/Cat'
+                ref_suffix = ref_path.lstrip("#/")
+                target_model: DataModel | None = None
+
+                # Try to find the model by path suffix
+                if ref_suffix in model_by_path_suffix:
+                    target_model = model_by_path_suffix[ref_suffix]
+                else:
+                    # Try matching by the last component of the ref path
+                    ref_name = ref_path.split("/")[-1]
+                    for model in models:
+                        if model.path.split("/")[-1] == ref_name:
+                            target_model = model
+                            break
+
+                if target_model is None:
+                    continue
+
+                if not isinstance(
+                    target_model,
+                    (
+                        pydantic_model.BaseModel,
+                        pydantic_model_v2.BaseModel,
+                        dataclass_model.DataClass,
+                        msgspec_model.Struct,
+                    ),
+                ):
+                    continue
+
+                # Check if the discriminator field already has the correct literal
+                has_field = False
+                for disc_field in target_model.fields:
+                    if field_name not in {disc_field.original_name, disc_field.name}:
+                        continue
+                    # Check if already has the correct literal
+                    literals = disc_field.data_type.literals
+                    if len(literals) == 1 and literals[0] == disc_value:
+                        has_field = True
+                        break
+                    # Update the field to use a Literal type
+                    for field_data_type in disc_field.data_type.all_data_types:
+                        if field_data_type.reference:
+                            field_data_type.remove_reference()
+                    disc_field.data_type = self.data_type(literals=[disc_value])
+                    disc_field.data_type.parent = disc_field
+                    disc_field.required = True
+                    imports.append(disc_field.imports)
+                    has_field = True
+                    break
+
+                if not has_field:
+                    # Add the discriminator field to the model
+                    new_field = self.data_model_field_type(
+                        name=field_name,
+                        data_type=self.data_type(literals=[disc_value]),
+                        required=True,
+                        alias=alias,
+                    )
+                    target_model.fields.append(new_field)
+                    imports.append(new_field.imports)
+
     @classmethod
     def _create_set_from_list(cls, data_type: DataType) -> DataType | None:
         if data_type.is_list:
@@ -1503,6 +1599,7 @@ class Parser(ABC):
             self.__set_default_enum_member(models)
             self.__sort_models(models, imports)
             self.__change_field_name(models)
+            self.__apply_schema_level_discriminator_type(models, imports)
             self.__apply_discriminator_type(models, imports)
             self.__set_one_literal_on_default(models)
 

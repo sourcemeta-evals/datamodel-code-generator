@@ -619,6 +619,7 @@ class JsonSchemaParser(Parser):
         self._root_id: Optional[str] = None  # noqa: UP045
         self._root_id_base_path: Optional[str] = None  # noqa: UP045
         self.reserved_refs: defaultdict[tuple[str, ...], set[str]] = defaultdict(set)
+        self.schema_level_discriminators: list[tuple[str, dict[str, str], list[str]]] = []
         self.field_keys: set[str] = {
             *DEFAULT_FIELD_KEYS,
             *self.field_extra_keys,
@@ -1773,6 +1774,17 @@ class JsonSchemaParser(Parser):
         else:
             self.parse_root_type(name, obj, path)
         self.parse_ref(obj, path)
+
+        # Store schema-level discriminators for post-processing (allOf + discriminator pattern)
+        if (
+            isinstance(obj.discriminator, Discriminator)
+            and obj.discriminator.mapping
+            and not obj.oneOf
+            and not obj.anyOf
+        ):
+            self.schema_level_discriminators.append(
+                (obj.discriminator.propertyName, obj.discriminator.mapping, path)
+            )
 
     def _get_context_source_path_parts(self) -> Iterator[tuple[Source, list[str]]]:
         """Get source and path parts for each input file with context managers."""
