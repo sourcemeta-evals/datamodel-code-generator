@@ -447,6 +447,7 @@ class Parser(ABC):
         self.source: str | Path | list[Path] | ParseResult = source
         self.custom_template_dir = custom_template_dir
         self.extra_template_data: defaultdict[str, Any] = extra_template_data or defaultdict(dict)
+        self.extra_template_data[ALL_MODEL]["__target_python_version"] = target_python_version
 
         if allow_population_by_field_name:
             self.extra_template_data[ALL_MODEL]["allow_population_by_field_name"] = True

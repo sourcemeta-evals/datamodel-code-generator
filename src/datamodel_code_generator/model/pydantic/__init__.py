@@ -5,7 +5,7 @@ from typing import TYPE_CHECKING, Optional
 from pydantic import BaseModel as _BaseModel
 
 from .base_model import BaseModel, DataModelField
-from .custom_root_type import CustomRootType
+from .custom_root_type import CustomRootType, TypeAliasRootType
 from .dataclass import DataClass
 from .types import DataTypeManager
 
@@ -31,6 +31,7 @@ class Config(_BaseModel):
 __all__ = [
     "BaseModel",
     "CustomRootType",
+    "TypeAliasRootType",
     "DataClass",
     "DataModelField",
     "DataTypeManager",

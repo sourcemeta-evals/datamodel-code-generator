@@ -120,6 +120,16 @@ model_options.add_argument(
     help="Models generated with a root-type field will be merged into the models using that root-type model",
 )
 model_options.add_argument(
+    "--use-type-alias",
+    action="store_true",
+    default=None,
+    help=(
+        "Generate type aliases instead of root model classes. Limitations: type aliases do not support "
+        "RootModel-specific features (e.g. model_config), may not preserve field metadata like default/alias, and "
+        "Pydantic v1 cannot combine this with Annotated root aliases."
+    ),
+)
+model_options.add_argument(
     "--disable-appending-item-suffix",
     help="Disable appending `Item` suffix to model name in an array",
     action="store_true",

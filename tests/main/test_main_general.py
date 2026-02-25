@@ -265,3 +265,92 @@ def test_filename_with_various_control_characters(tmp_path: Path) -> None:
         ), f"System call found for {test_name}"
 
         compile(generated_content, str(output_path), "exec")
+
+
+USE_TYPE_ALIAS_SCHEMA = """{
+  \"definitions\": {
+    \"SimpleString\": {\"type\": \"string\"},
+    \"UnionType\": {\"anyOf\": [{\"type\": \"string\"}, {\"type\": \"integer\"}]},
+    \"AnnotatedType\": {
+      \"title\": \"MyAnnotatedType\",
+      \"description\": \"An annotated union type\",
+      \"anyOf\": [{\"type\": \"string\"}, {\"type\": \"boolean\"}]
+    }
+  }
+}"""
+
+
+def _generate_use_type_alias_output(
+    tmp_path: Path,
+    *,
+    output_model_type: DataModelType,
+    target_python_version: PythonVersion,
+) -> str:
+    output_file = tmp_path / f"{output_model_type.value.replace('.', '_')}_{target_python_version.value}.py"
+    generate(
+        input_=USE_TYPE_ALIAS_SCHEMA,
+        input_file_type=InputFileType.JsonSchema,
+        output=output_file,
+        output_model_type=output_model_type,
+        target_python_version=target_python_version,
+        use_type_alias=True,
+        use_annotated=True,
+        field_constraints=True,
+        disable_timestamp=True,
+    )
+    return output_file.read_text()
+
+
+@freeze_time(TIMESTAMP)
+def test_use_type_alias_pydantic_v1_py39(tmp_path: Path) -> None:
+    generated = _generate_use_type_alias_output(
+        tmp_path,
+        output_model_type=DataModelType.PydanticBaseModel,
+        target_python_version=PythonVersion.PY_39,
+    )
+
+    assert "from typing_extensions import TypeAlias" in generated
+    assert "from pydantic import RootModel" not in generated
+    assert "class SimpleString" not in generated
+    assert "SimpleString: TypeAlias = str" in generated
+    assert "UnionType: TypeAlias = Union[str, int]" in generated
+
+
+@freeze_time(TIMESTAMP)
+def test_use_type_alias_pydantic_v2_python_matrix(tmp_path: Path) -> None:
+    generated_py311 = _generate_use_type_alias_output(
+        tmp_path,
+        output_model_type=DataModelType.PydanticV2BaseModel,
+        target_python_version=PythonVersion.PY_311,
+    )
+    assert "from typing_extensions import TypeAliasType" in generated_py311
+    assert "SimpleString = TypeAliasType('SimpleString', str)" in generated_py311
+    assert "type SimpleString = str" not in generated_py311
+
+    generated_py312 = _generate_use_type_alias_output(
+        tmp_path,
+        output_model_type=DataModelType.PydanticV2BaseModel,
+        target_python_version=PythonVersion.PY_312,
+    )
+    assert "type SimpleString = str" in generated_py312
+    assert "TypeAliasType" not in generated_py312
+
+
+@freeze_time(TIMESTAMP)
+def test_use_type_alias_non_pydantic_python_matrix(tmp_path: Path) -> None:
+    generated_py311 = _generate_use_type_alias_output(
+        tmp_path,
+        output_model_type=DataModelType.DataclassesDataclass,
+        target_python_version=PythonVersion.PY_311,
+    )
+    assert "TypeAlias" in generated_py311
+    assert "from typing import" in generated_py311
+    assert "SimpleString: TypeAlias = str" in generated_py311
+
+    generated_py312 = _generate_use_type_alias_output(
+        tmp_path,
+        output_model_type=DataModelType.DataclassesDataclass,
+        target_python_version=PythonVersion.PY_312,
+    )
+    assert "type SimpleString = str" in generated_py312
+    assert "TypeAlias" not in generated_py312
