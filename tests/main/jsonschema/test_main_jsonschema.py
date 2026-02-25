@@ -3320,3 +3320,123 @@ def test_main_jsonschema_forwarding_reference_collapse_root(tmp_path: Path) -> N
     for path in main_modular_dir.rglob("*.py"):
         result = tmp_path.joinpath(path.relative_to(main_modular_dir)).read_text()
         assert result == path.read_text()
+
+
+@freeze_time("2019-07-26")
+def test_main_use_type_alias_pydantic_v2_py39(tmp_path: Path) -> None:
+    """Pydantic v2 + Python 3.9: should use TypeAliasType from typing_extensions."""
+    output_file: Path = tmp_path / "output.py"
+    return_code: Exit = main([
+        "--input",
+        str(JSON_SCHEMA_DATA_PATH / "type_alias.json"),
+        "--output",
+        str(output_file),
+        "--input-file-type",
+        "jsonschema",
+        "--output-model-type",
+        "pydantic_v2.BaseModel",
+        "--use-type-alias",
+        "--target-python-version",
+        "3.9",
+    ])
+    assert return_code == Exit.OK
+    assert (
+        output_file.read_text(encoding="utf-8")
+        == (EXPECTED_JSON_SCHEMA_PATH / "type_alias_pydantic_v2_py39.py").read_text()
+    )
+
+
+@freeze_time("2019-07-26")
+def test_main_use_type_alias_pydantic_v2_py312(tmp_path: Path) -> None:
+    """Pydantic v2 + Python 3.12: should use native type statement."""
+    output_file: Path = tmp_path / "output.py"
+    return_code: Exit = main([
+        "--input",
+        str(JSON_SCHEMA_DATA_PATH / "type_alias.json"),
+        "--output",
+        str(output_file),
+        "--input-file-type",
+        "jsonschema",
+        "--output-model-type",
+        "pydantic_v2.BaseModel",
+        "--use-type-alias",
+        "--target-python-version",
+        "3.12",
+    ])
+    assert return_code == Exit.OK
+    assert (
+        output_file.read_text(encoding="utf-8")
+        == (EXPECTED_JSON_SCHEMA_PATH / "type_alias_pydantic_v2_py312.py").read_text()
+    )
+
+
+@freeze_time("2019-07-26")
+def test_main_use_type_alias_pydantic_v1_py39(tmp_path: Path) -> None:
+    """Pydantic v1 + Python 3.9: should use TypeAlias from typing_extensions."""
+    output_file: Path = tmp_path / "output.py"
+    return_code: Exit = main([
+        "--input",
+        str(JSON_SCHEMA_DATA_PATH / "type_alias.json"),
+        "--output",
+        str(output_file),
+        "--input-file-type",
+        "jsonschema",
+        "--output-model-type",
+        "pydantic.BaseModel",
+        "--use-type-alias",
+        "--target-python-version",
+        "3.9",
+    ])
+    assert return_code == Exit.OK
+    assert (
+        output_file.read_text(encoding="utf-8")
+        == (EXPECTED_JSON_SCHEMA_PATH / "type_alias_pydantic_v1_py39.py").read_text()
+    )
+
+
+@freeze_time("2019-07-26")
+def test_main_use_type_alias_pydantic_v1_py310(tmp_path: Path) -> None:
+    """Pydantic v1 + Python 3.10: should use TypeAlias from typing."""
+    output_file: Path = tmp_path / "output.py"
+    return_code: Exit = main([
+        "--input",
+        str(JSON_SCHEMA_DATA_PATH / "type_alias.json"),
+        "--output",
+        str(output_file),
+        "--input-file-type",
+        "jsonschema",
+        "--output-model-type",
+        "pydantic.BaseModel",
+        "--use-type-alias",
+        "--target-python-version",
+        "3.10",
+    ])
+    assert return_code == Exit.OK
+    assert (
+        output_file.read_text(encoding="utf-8")
+        == (EXPECTED_JSON_SCHEMA_PATH / "type_alias_pydantic_v1_py310.py").read_text()
+    )
+
+
+@freeze_time("2019-07-26")
+def test_main_use_type_alias_pydantic_v1_py312(tmp_path: Path) -> None:
+    """Pydantic v1 + Python 3.12: should use native type statement."""
+    output_file: Path = tmp_path / "output.py"
+    return_code: Exit = main([
+        "--input",
+        str(JSON_SCHEMA_DATA_PATH / "type_alias.json"),
+        "--output",
+        str(output_file),
+        "--input-file-type",
+        "jsonschema",
+        "--output-model-type",
+        "pydantic.BaseModel",
+        "--use-type-alias",
+        "--target-python-version",
+        "3.12",
+    ])
+    assert return_code == Exit.OK
+    assert (
+        output_file.read_text(encoding="utf-8")
+        == (EXPECTED_JSON_SCHEMA_PATH / "type_alias_pydantic_v1_py312.py").read_text()
+    )
