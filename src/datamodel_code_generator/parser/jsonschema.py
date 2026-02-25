@@ -1117,6 +1117,8 @@ class JsonSchemaParser(Parser):
         )
         class_name = reference.name
         self.set_title(reference.path, obj)
+        if isinstance(obj.discriminator, Discriminator):
+            self.extra_template_data[reference.path]["discriminator"] = obj.discriminator.dict(exclude_none=True)
         fields = self.parse_object_fields(
             obj, path, get_module_name(class_name, None, treat_dot_as_module=self.treat_dot_as_module)
         )
