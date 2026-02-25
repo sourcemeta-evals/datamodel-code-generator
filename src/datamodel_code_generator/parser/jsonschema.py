@@ -1385,6 +1385,64 @@ class JsonSchemaParser(Parser):
         self.results.append(data_model_root)
         return self.data_type(reference=reference)
 
+    def _parse_discriminator_allof_union(
+        self,
+        name: str,
+        obj: JsonSchemaObject,
+        path: list[str],
+    ) -> None:
+        """Create a root model for an object with discriminator mapping but no oneOf/anyOf.
+
+        When a schema defines a discriminator with mapping and child schemas extend it
+        via allOf (the OpenAPI polymorphism pattern), this method creates a synthetic
+        root model that carries the discriminator info. This enables the post-processing
+        step (__apply_discriminator_type) to add Literal types to child models.
+        """
+        assert isinstance(obj.discriminator, Discriminator)
+        assert obj.discriminator.mapping
+
+        # Create ref data types for all mapped child schemas
+        data_types = [
+            self.get_ref_data_type(ref_path)
+            for ref_path in obj.discriminator.mapping.values()
+        ]
+
+        if not data_types:
+            return
+
+        # Create the union data type
+        union_data_type = self.data_type(data_types=data_types)
+
+        # Use a special path so the root model doesn't conflict with the base class
+        union_path = get_special_path("discriminator_union", path)
+        reference = self.model_resolver.add(union_path, name, loaded=True, class_name=True)
+
+        # Build field extras including discriminator info for __apply_discriminator_type
+        extras = self.get_field_extras(obj)
+
+        # Create the root model with the discriminated union
+        root_model = self.data_model_root_type(
+            reference=reference,
+            fields=[
+                self.data_model_field_type(
+                    data_type=union_data_type,
+                    required=True,
+                    extras=extras,
+                    use_annotated=self.use_annotated,
+                    use_field_description=self.use_field_description,
+                    use_inline_field_description=self.use_inline_field_description,
+                    original_name=None,
+                    has_default=False,
+                )
+            ],
+            custom_base_class=obj.custom_base_path or self.base_class,
+            custom_template_dir=self.custom_template_dir,
+            extra_template_data=self.extra_template_data,
+            path=self.current_source_path,
+            treat_dot_as_module=self.treat_dot_as_module,
+        )
+        self.results.append(root_model)
+
     def parse_root_type(  # noqa: PLR0912
         self,
         name: str,
@@ -1764,6 +1822,16 @@ class JsonSchemaParser(Parser):
                 self.parse_object(name, obj, path)  # pragma: no cover
         elif obj.properties:
             self.parse_object(name, obj, path)
+            # Handle discriminator with mapping on object types (allOf pattern).
+            # When a base schema defines a discriminator mapping but has no oneOf/anyOf,
+            # create a synthetic root model so __apply_discriminator_type can add
+            # Literal types to the mapped child models.
+            if (
+                obj.discriminator
+                and isinstance(obj.discriminator, Discriminator)
+                and obj.discriminator.mapping
+            ):
+                self._parse_discriminator_allof_union(name, obj, path)
         elif obj.patternProperties:
             self.parse_root_type(name, obj, path)
         elif obj.type == "object":
