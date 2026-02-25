@@ -376,6 +376,7 @@ class OpenAPIParser(JsonSchemaParser):
         path: list[str],
     ) -> DataType:
         """Parse a JSON schema object into a data type."""
+        obj = self._promote_discriminator_mapping_to_one_of(obj)
         if obj.is_array:
             data_type = self.parse_array(name, obj, [*path, name])
         elif obj.allOf:  # pragma: no cover

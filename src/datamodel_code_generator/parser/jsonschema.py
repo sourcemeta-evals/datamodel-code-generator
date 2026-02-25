@@ -831,6 +831,27 @@ class JsonSchemaParser(Parser):
         """Parse oneOf schema into a list of data types."""
         return self.parse_combined_schema(name, obj, path, "oneOf")
 
+    def _promote_discriminator_mapping_to_one_of(self, obj: JsonSchemaObject) -> JsonSchemaObject:
+        """Promote discriminator mapping refs into oneOf for polymorphic inheritance schemas."""
+        if obj.oneOf or obj.anyOf:
+            return obj
+
+        discriminator = obj.discriminator
+        if not isinstance(discriminator, Discriminator):
+            return obj
+
+        mapping = discriminator.mapping
+        if not mapping:
+            return obj
+
+        refs: list[str] = list(dict.fromkeys(ref for ref in mapping.values() if ref))
+        if not refs:
+            return obj
+
+        promoted_schema = obj.dict(by_alias=True, exclude_unset=True)
+        promoted_schema["oneOf"] = [{"$ref": ref} for ref in refs]
+        return self.SCHEMA_OBJECT_TYPE.parse_obj(promoted_schema)
+
     def _create_data_model(self, model_type: type[DataModel] | None = None, **kwargs: Any) -> DataModel:
         """Create data model instance with dataclass_arguments support for DataClass."""
         data_model_class = model_type or self.data_model_type
@@ -1200,6 +1221,7 @@ class JsonSchemaParser(Parser):
         parent: JsonSchemaObject | None = None,
     ) -> DataType:
         """Parse a single JSON Schema item into a data type."""
+        item = self._promote_discriminator_mapping_to_one_of(item)
         if self.use_title_as_name and item.title:
             name = item.title
             singular_name = False
@@ -1754,6 +1776,7 @@ class JsonSchemaParser(Parser):
         path: list[str],
     ) -> None:
         """Parse a JsonSchemaObject by dispatching to appropriate parse methods."""
+        obj = self._promote_discriminator_mapping_to_one_of(obj)
         if obj.is_array:
             self.parse_array(name, obj, path)
         elif obj.allOf:

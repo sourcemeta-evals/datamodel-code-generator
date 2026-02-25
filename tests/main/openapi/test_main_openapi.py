@@ -97,6 +97,30 @@ def test_main_openapi_discriminator_with_properties(output_file: Path) -> None:
     )
 
 
+@pytest.mark.skipif(
+    black.__version__.split(".")[0] == "19",
+    reason="Installed black doesn't support the old style",
+)
+def test_main_openapi_discriminator_all_of(output_file: Path) -> None:
+    """Test OpenAPI generation with discriminator mapping and allOf inheritance."""
+    run_main_and_assert(
+        input_path=OPEN_API_DATA_PATH / "discriminator_all_of.yaml",
+        output_path=output_file,
+        input_file_type="openapi",
+        assert_func=assert_file_content,
+        expected_file=EXPECTED_OPENAPI_PATH / "discriminator" / "all_of.py",
+        extra_args=[
+            "--output-model-type",
+            "pydantic_v2.BaseModel",
+            "--snake-case-field",
+            "--use-annotated",
+            "--use-union-operator",
+            "--target-python-version",
+            "3.11",
+        ],
+    )
+
+
 def test_main_pydantic_basemodel(output_file: Path) -> None:
     """Test OpenAPI generation with Pydantic BaseModel output."""
     run_main_and_assert(
