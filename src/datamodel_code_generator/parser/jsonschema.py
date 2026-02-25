@@ -1772,6 +1772,37 @@ class JsonSchemaParser(Parser):
             self.parse_enum(name, obj, path)
         else:
             self.parse_root_type(name, obj, path)
+
+        # Store discriminator info for allOf+discriminator pattern processing.
+        # When a schema defines a discriminator with a mapping (e.g. Pet with
+        # petType mapping to Cat/Dog/Lizard), record it so the post-processing
+        # step can set Literal types on child models that inherit via allOf.
+        # Only store for schemas that don't use oneOf/anyOf, as those are
+        # already handled by __apply_discriminator_type.
+        if (
+            obj.discriminator
+            and isinstance(obj.discriminator, Discriminator)
+            and obj.discriminator.mapping
+            and not obj.oneOf
+            and not obj.anyOf
+        ):
+            reference = self.model_resolver.get(path)
+            if reference:
+                # Resolve the mapping refs to full paths (including file prefix)
+                # so they can be matched against model reference paths during
+                # post-processing.
+                resolved_mapping: dict[str, str] = {}
+                for disc_value, child_ref in obj.discriminator.mapping.items():
+                    child_reference = self.model_resolver.get(child_ref)
+                    if child_reference:
+                        resolved_mapping[disc_value] = child_reference.path
+                    else:
+                        resolved_mapping[disc_value] = child_ref
+                self._schema_discriminators[reference.path] = {
+                    "propertyName": obj.discriminator.propertyName,
+                    "mapping": resolved_mapping,
+                }
+
         self.parse_ref(obj, path)
 
     def _get_context_source_path_parts(self) -> Iterator[tuple[Source, list[str]]]:
