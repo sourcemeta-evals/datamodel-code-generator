@@ -453,6 +453,66 @@ def test_openapi_parser_parse_allof_required_fields(tmp_path: Path, monkeypatch:
     assert_output(parser.parse(), EXPECTED_OPEN_API_PATH / "openapi_parser_parse_allof_required_fields" / "output.py")
 
 
+def test_openapi_parser_parse_discriminator_with_allof_inheritance() -> None:
+    """Test discriminator mapping on a referenced base schema composed via allOf."""
+    parser = OpenAPIParser(
+        """openapi: 3.1.1
+info:
+  title: Test
+  version: 1.0.0
+components:
+  schemas:
+    Pet:
+      type: object
+      required:
+        - petType
+      properties:
+        petType:
+          type: string
+      discriminator:
+        propertyName: petType
+        mapping:
+          cat: '#/components/schemas/Cat'
+          dog: '#/components/schemas/Dog'
+          lizard: '#/components/schemas/Lizard'
+    Cat:
+      allOf:
+        - $ref: '#/components/schemas/Pet'
+        - type: object
+          properties:
+            name:
+              type: string
+    Dog:
+      allOf:
+        - $ref: '#/components/schemas/Pet'
+        - type: object
+          properties:
+            bark:
+              type: string
+    Lizard:
+      allOf:
+        - $ref: '#/components/schemas/Pet'
+        - type: object
+          properties:
+            lovesRocks:
+              type: boolean
+    Wrapper:
+      type: object
+      properties:
+        pet:
+          $ref: '#/components/schemas/Pet'
+"""
+    )
+
+    result = parser.parse()
+
+    assert "pet: Optional[Union[Cat, Dog, Lizard]] = Field(None, discriminator='petType')" in result
+    assert "petType: Literal['cat']" in result
+    assert "petType: Literal['dog']" in result
+    assert "petType: Literal['lizard']" in result
+    assert "pet: Optional[Pet] = None" not in result
+
+
 def test_openapi_parser_parse_alias(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     """Test parsing OpenAPI with field aliases."""
     monkeypatch.chdir(tmp_path)

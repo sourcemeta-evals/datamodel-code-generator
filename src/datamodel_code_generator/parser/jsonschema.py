@@ -646,6 +646,11 @@ class JsonSchemaParser(Parser):
                 for k, v in obj.extras.items()
                 if k in self.field_keys
             }
+        if "discriminator" not in extras and obj.ref and obj.ref_type == JSONReference.LOCAL:
+            ref_body = get_model_by_path(self.raw_obj, obj.ref[2:].split("/"))
+            discriminator = ref_body.get("discriminator")
+            if isinstance(discriminator, dict) and isinstance(discriminator.get("mapping"), dict):
+                extras["discriminator"] = discriminator.copy()
         if self.default_field_extras:
             extras.update(self.default_field_extras)
         return extras
@@ -748,6 +753,12 @@ class JsonSchemaParser(Parser):
     def get_ref_data_type(self, ref: str) -> DataType:
         """Get a data type from a reference string."""
         reference = self.model_resolver.add_ref(ref)
+        if get_ref_type(ref) == JSONReference.LOCAL:
+            ref_body = get_model_by_path(self.raw_obj, ref[2:].split("/"))
+            discriminator = ref_body.get("discriminator")
+            mapping = discriminator.get("mapping") if isinstance(discriminator, dict) else None
+            if isinstance(mapping, dict) and mapping and not (ref_body.get("oneOf") or ref_body.get("anyOf")):
+                return self.data_type(data_types=[self.get_ref_data_type(mapped_ref) for mapped_ref in mapping.values()])
         return self.data_type(reference=reference)
 
     def set_additional_properties(self, path: str, obj: JsonSchemaObject) -> None:
