@@ -1,0 +1,9 @@
+{%- set field = fields[0] %}
+{%- if description %}
+# {{ description | replace('\n', '\n# ') }}
+{%- endif %}
+{%- if field.annotated %}
+{{ class_name }}: TypeAlias = {{ field.annotated }}
+{%- else %}
+{{ class_name }}: TypeAlias = {{ field.type_hint }}
+{%- endif %}

@@ -3320,3 +3320,101 @@ def test_main_jsonschema_forwarding_reference_collapse_root(tmp_path: Path) -> N
     for path in main_modular_dir.rglob("*.py"):
         result = tmp_path.joinpath(path.relative_to(main_modular_dir)).read_text()
         assert result == path.read_text()
+
+
+@freeze_time("2019-07-26")
+def test_main_use_type_alias_pydantic_v2_py312(tmp_path: Path) -> None:
+    """Test --use-type-alias with pydantic v2 and Python 3.12+ (native type statement)."""
+    output_file: Path = tmp_path / "output.py"
+    return_code: Exit = main([
+        "--input",
+        str(JSON_SCHEMA_DATA_PATH / "type_alias.json"),
+        "--output",
+        str(output_file),
+        "--input-file-type",
+        "jsonschema",
+        "--use-type-alias",
+        "--output-model-type",
+        "pydantic_v2.BaseModel",
+        "--target-python-version",
+        "3.12",
+        "--use-annotated",
+    ])
+    assert return_code == Exit.OK
+    assert (
+        output_file.read_text(encoding="utf-8")
+        == (EXPECTED_JSON_SCHEMA_PATH / "type_alias_pydantic_v2_py312.py").read_text()
+    )
+
+
+@freeze_time("2019-07-26")
+def test_main_use_type_alias_pydantic_v2_py39(tmp_path: Path) -> None:
+    """Test --use-type-alias with pydantic v2 and Python 3.9 (TypeAliasType)."""
+    output_file: Path = tmp_path / "output.py"
+    return_code: Exit = main([
+        "--input",
+        str(JSON_SCHEMA_DATA_PATH / "type_alias.json"),
+        "--output",
+        str(output_file),
+        "--input-file-type",
+        "jsonschema",
+        "--use-type-alias",
+        "--output-model-type",
+        "pydantic_v2.BaseModel",
+        "--target-python-version",
+        "3.9",
+        "--use-annotated",
+    ])
+    assert return_code == Exit.OK
+    assert (
+        output_file.read_text(encoding="utf-8")
+        == (EXPECTED_JSON_SCHEMA_PATH / "type_alias_pydantic_v2_py39.py").read_text()
+    )
+
+
+@freeze_time("2019-07-26")
+def test_main_use_type_alias_pydantic_v1_py39(tmp_path: Path) -> None:
+    """Test --use-type-alias with pydantic v1 and Python 3.9 (TypeAlias annotation)."""
+    output_file: Path = tmp_path / "output.py"
+    return_code: Exit = main([
+        "--input",
+        str(JSON_SCHEMA_DATA_PATH / "type_alias.json"),
+        "--output",
+        str(output_file),
+        "--input-file-type",
+        "jsonschema",
+        "--use-type-alias",
+        "--output-model-type",
+        "pydantic.BaseModel",
+        "--target-python-version",
+        "3.9",
+    ])
+    assert return_code == Exit.OK
+    assert (
+        output_file.read_text(encoding="utf-8")
+        == (EXPECTED_JSON_SCHEMA_PATH / "type_alias_pydantic_v1_py39.py").read_text()
+    )
+
+
+@freeze_time("2019-07-26")
+def test_main_use_type_alias_dataclass_py312(tmp_path: Path) -> None:
+    """Test --use-type-alias with dataclasses and Python 3.12+ (native type statement)."""
+    output_file: Path = tmp_path / "output.py"
+    return_code: Exit = main([
+        "--input",
+        str(JSON_SCHEMA_DATA_PATH / "type_alias.json"),
+        "--output",
+        str(output_file),
+        "--input-file-type",
+        "jsonschema",
+        "--use-type-alias",
+        "--output-model-type",
+        "dataclasses.dataclass",
+        "--target-python-version",
+        "3.12",
+    ])
+    assert return_code == Exit.OK
+    assert (
+        output_file.read_text(encoding="utf-8")
+        == (EXPECTED_JSON_SCHEMA_PATH / "type_alias_dataclass_py312.py").read_text()
+    )
