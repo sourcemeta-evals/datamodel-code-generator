@@ -264,6 +264,16 @@ typing_options.add_argument(
     default=None,
 )
 typing_options.add_argument(
+    "--use-type-alias",
+    help=(
+        "Generate type aliases instead of root model classes. Limitations: aliases do not preserve all root-model "
+        "features (for example defaults/aliases/model_config); pydantic v1 aliases cannot be combined with "
+        "Annotated metadata."
+    ),
+    action="store_true",
+    default=None,
+)
+typing_options.add_argument(
     "--use-generic-container-types",
     help="Use generic container types for type hinting (typing.Sequence, typing.Mapping). "
     "If `--use-standard-collections` option is set, then import from collections.abc instead of typing",

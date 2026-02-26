@@ -3320,3 +3320,117 @@ def test_main_jsonschema_forwarding_reference_collapse_root(tmp_path: Path) -> N
     for path in main_modular_dir.rglob("*.py"):
         result = tmp_path.joinpath(path.relative_to(main_modular_dir)).read_text()
         assert result == path.read_text()
+
+
+USE_TYPE_ALIAS_SCHEMA = {
+    "definitions": {
+        "SimpleString": {"type": "string"},
+        "UnionType": {"anyOf": [{"type": "string"}, {"type": "integer"}]},
+        "AnnotatedType": {
+            "title": "MyAnnotatedType",
+            "description": "An annotated union type",
+            "anyOf": [{"type": "string"}, {"type": "boolean"}],
+        },
+    }
+}
+
+
+def _run_main_use_type_alias(tmp_path: Path, *extra_args: str) -> str:
+    input_file = tmp_path / "use_type_alias.json"
+    output_file = tmp_path / "output.py"
+    input_file.write_text(json.dumps(USE_TYPE_ALIAS_SCHEMA), encoding="utf-8")
+    return_code: Exit = main([
+        "--input",
+        str(input_file),
+        "--output",
+        str(output_file),
+        "--input-file-type",
+        "jsonschema",
+        "--use-type-alias",
+        *extra_args,
+    ])
+    assert return_code == Exit.OK
+    return output_file.read_text(encoding="utf-8")
+
+
+@pytest.mark.parametrize(
+    ("extra_args", "expected_snippets", "unexpected_snippets"),
+    [
+        (
+            ("--target-python-version", "3.9"),
+            (
+                "from typing_extensions import TypeAlias",
+                "SimpleString: TypeAlias = str",
+                "UnionType: TypeAlias = Union[str, int]",
+            ),
+            ("class SimpleString(", "type SimpleString =", "TypeAliasType("),
+        ),
+        (
+            ("--target-python-version", "3.12"),
+            (
+                "TypeAlias",
+                "SimpleString: TypeAlias = str",
+            ),
+            ("type SimpleString =", "TypeAliasType("),
+        ),
+        (
+            (
+                "--output-model-type",
+                "dataclasses.dataclass",
+                "--target-python-version",
+                "3.12",
+            ),
+            (
+                "type SimpleString = str",
+                "type UnionType = Union[str, int]",
+            ),
+            ("from typing import TypeAlias", "TypeAliasType(", "class SimpleString("),
+        ),
+    ],
+)
+@freeze_time("2019-07-26")
+def test_main_jsonschema_use_type_alias_version_matrix(
+    tmp_path: Path,
+    extra_args: tuple[str, ...],
+    expected_snippets: tuple[str, ...],
+    unexpected_snippets: tuple[str, ...],
+) -> None:
+    result = _run_main_use_type_alias(tmp_path, *extra_args)
+    for snippet in expected_snippets:
+        assert snippet in result
+    for snippet in unexpected_snippets:
+        assert snippet not in result
+
+
+@freeze_time("2019-07-26")
+def test_main_jsonschema_use_type_alias_pydantic_v2_type_alias_type(tmp_path: Path) -> None:
+    result = _run_main_use_type_alias(
+        tmp_path,
+        "--output-model-type",
+        "pydantic_v2.BaseModel",
+        "--target-python-version",
+        "3.11",
+        "--use-annotated",
+        "--field-constraints",
+    )
+
+    assert "from typing_extensions import TypeAliasType" in result
+    assert "SimpleString = TypeAliasType('SimpleString', str)" in result
+    assert "AnnotatedType = TypeAliasType(" in result
+    assert "Annotated[" in result
+    assert "Field(description='An annotated union type', title='MyAnnotatedType')" in result
+    assert "type SimpleString =" not in result
+
+
+@freeze_time("2019-07-26")
+def test_main_jsonschema_use_type_alias_pydantic_v1_drops_annotated_metadata(tmp_path: Path) -> None:
+    result = _run_main_use_type_alias(
+        tmp_path,
+        "--target-python-version",
+        "3.9",
+        "--use-annotated",
+        "--field-constraints",
+    )
+
+    assert "AnnotatedType: TypeAlias = Union[str, bool]" in result
+    assert "AnnotatedType: TypeAlias = Annotated[" not in result
