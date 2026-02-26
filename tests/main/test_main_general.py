@@ -24,6 +24,17 @@ PYTHON_DATA_PATH: Path = DATA_PATH / "python"
 EXPECTED_MAIN_PATH = DATA_PATH / "expected" / "main"
 
 TIMESTAMP = "1985-10-26T01:21:00-07:00"
+TYPE_ALIAS_SCHEMA = """{
+  \"definitions\": {
+    \"SimpleString\": {\"type\": \"string\"},
+    \"UnionType\": {\"anyOf\": [{\"type\": \"string\"}, {\"type\": \"integer\"}]},
+    \"AnnotatedType\": {
+      \"title\": \"MyAnnotatedType\",
+      \"description\": \"An annotated union type\",
+      \"anyOf\": [{\"type\": \"string\"}, {\"type\": \"boolean\"}]
+    }
+  }
+}"""
 
 
 @pytest.fixture(autouse=True)
@@ -144,6 +155,95 @@ def test_frozen_dataclasses_with_keyword_only(tmp_path: Path) -> None:
         target_python_version=PythonVersion.PY_310,
     )
     assert output_file.read_text() == (EXPECTED_MAIN_PATH / "frozen_dataclasses_keyword_only.py").read_text()
+
+
+@freeze_time(TIMESTAMP)
+@pytest.mark.parametrize(
+    ("output_model_type", "target_python_version", "expected", "unexpected"),
+    [
+        (
+            DataModelType.PydanticBaseModel,
+            PythonVersion.PY_39,
+            [
+                "from typing_extensions import TypeAlias",
+                "SimpleString: TypeAlias = str",
+                "AnnotatedType: TypeAlias = Annotated[",
+            ],
+            ["class SimpleString(", "RootModel", "TypeAliasType("],
+        ),
+        (
+            DataModelType.PydanticV2BaseModel,
+            PythonVersion.PY_39,
+            [
+                "from typing_extensions import TypeAliasType",
+                "SimpleString = TypeAliasType(",
+                "UnionType = TypeAliasType(",
+            ],
+            ["class SimpleString(", "RootModel"],
+        ),
+        (
+            DataModelType.PydanticBaseModel,
+            PythonVersion.PY_312,
+            [
+                "TypeAlias",
+                "SimpleString: TypeAlias = str",
+            ],
+            ["type SimpleString = str", "TypeAliasType(", "RootModel"],
+        ),
+        (
+            DataModelType.PydanticV2BaseModel,
+            PythonVersion.PY_312,
+            [
+                "type SimpleString = str",
+                "type UnionType = Union[str, int]",
+                "type AnnotatedType = Annotated[",
+            ],
+            ["TypeAliasType(", ": TypeAlias =", "RootModel"],
+        ),
+        (
+            DataModelType.DataclassesDataclass,
+            PythonVersion.PY_39,
+            [
+                "from typing_extensions import TypeAlias",
+                "SimpleString: TypeAlias = str",
+            ],
+            ["TypeAliasType(", "RootModel"],
+        ),
+        (
+            DataModelType.DataclassesDataclass,
+            PythonVersion.PY_312,
+            [
+                "type SimpleString = str",
+                "type UnionType = Union[str, int]",
+            ],
+            [": TypeAlias =", "TypeAliasType(", "RootModel"],
+        ),
+    ],
+)
+def test_use_type_alias_generation_matrix(
+    tmp_path: Path,
+    output_model_type: DataModelType,
+    target_python_version: PythonVersion,
+    expected: list[str],
+    unexpected: list[str],
+) -> None:
+    output_file = tmp_path / "type_alias_output.py"
+    generate(
+        TYPE_ALIAS_SCHEMA,
+        input_file_type=InputFileType.JsonSchema,
+        output=output_file,
+        output_model_type=output_model_type,
+        target_python_version=target_python_version,
+        use_type_alias=True,
+        use_annotated=True,
+        field_constraints=True,
+    )
+    content = output_file.read_text()
+
+    for snippet in expected:
+        assert snippet in content
+    for snippet in unexpected:
+        assert snippet not in content
 
 
 @freeze_time(TIMESTAMP)

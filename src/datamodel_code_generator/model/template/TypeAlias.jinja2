@@ -1,0 +1,14 @@
+{%- set field = fields[0] %}
+{%- set alias_type = field.annotated or field.type_hint %}
+{%- if type_alias_kind == 'native' %}
+type {{ class_name }} = {{ alias_type }}
+{%- elif type_alias_kind == 'type_alias_type' %}
+{{ class_name }} = TypeAliasType('{{ class_name }}', {{ alias_type }})
+{%- else %}
+{{ class_name }}: TypeAlias = {{ alias_type }}
+{%- endif %}
+{%- if description %}
+"""
+{{ description }}
+"""
+{%- endif %}
