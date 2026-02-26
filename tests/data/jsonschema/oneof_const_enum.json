@@ -1,0 +1,68 @@
+{
+  "definitions": {
+    "nodejsModeEnum": {
+      "title": "NodeJS mode",
+      "type": "string",
+      "description": "A long description here.",
+      "default": "npm",
+      "oneOf": [
+        {
+          "title": "npm",
+          "const": "npm"
+        },
+        {
+          "title": "yarn",
+          "const": "yarn"
+        },
+        {
+          "title": "npm ci",
+          "const": "npm_ci"
+        }
+      ]
+    },
+    "colorEnum": {
+      "title": "Color",
+      "type": "string",
+      "anyOf": [
+        {
+          "title": "red",
+          "const": "red"
+        },
+        {
+          "title": "green",
+          "const": "green"
+        },
+        {
+          "title": "blue",
+          "const": "blue"
+        }
+      ]
+    },
+    "statusEnum": {
+      "title": "Status",
+      "type": "integer",
+      "oneOf": [
+        {
+          "title": "active",
+          "const": 1
+        },
+        {
+          "title": "inactive",
+          "const": 0
+        }
+      ]
+    }
+  },
+  "type": "object",
+  "properties": {
+    "mode": {
+      "$ref": "#/definitions/nodejsModeEnum"
+    },
+    "color": {
+      "$ref": "#/definitions/colorEnum"
+    },
+    "status": {
+      "$ref": "#/definitions/statusEnum"
+    }
+  }
+}

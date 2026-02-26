@@ -3393,3 +3393,18 @@ def test_main_jsonschema_reserved_field_name_pydantic(output_file: Path) -> None
             "3.11",
         ],
     )
+
+
+def test_main_jsonschema_oneof_const_enum(output_file: Path) -> None:
+    """Test oneOf/anyOf with const generates enum classes (Issue #1925)."""
+    run_main_and_assert(
+        input_path=JSON_SCHEMA_DATA_PATH / "oneof_const_enum.json",
+        output_path=output_file,
+        input_file_type="jsonschema",
+        assert_func=assert_file_content,
+        expected_file="oneof_const_enum.py",
+        extra_args=[
+            "--output-model-type",
+            "pydantic_v2.BaseModel",
+        ],
+    )
