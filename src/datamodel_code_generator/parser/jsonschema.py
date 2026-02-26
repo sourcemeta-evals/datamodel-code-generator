@@ -619,6 +619,11 @@ class JsonSchemaParser(Parser):
         self._root_id: Optional[str] = None  # noqa: UP045
         self._root_id_base_path: Optional[str] = None  # noqa: UP045
         self.reserved_refs: defaultdict[tuple[str, ...], set[str]] = defaultdict(set)
+        # Maps reference paths of schemas that have discriminator+mapping but no
+        # oneOf/anyOf to their discriminator info (propertyName + mapping refs).
+        # Populated during parse_obj, consumed during post-processing to expand
+        # simple references into discriminated unions.
+        self.allof_discriminator_schemas: dict[str, dict[str, Any]] = {}
         self.field_keys: set[str] = {
             *DEFAULT_FIELD_KEYS,
             *self.field_extra_keys,
@@ -1032,6 +1037,29 @@ class JsonSchemaParser(Parser):
         self.results.append(data_model_root)
         return self.data_type(reference=reference)
 
+    def _resolve_allof_discriminator_ref(self, ref: str) -> tuple[DataType, dict[str, Any]] | None:
+        """If *ref* points to a schema with a discriminator+mapping (allOf pattern),
+        return a union DataType of the mapped child schemas and the discriminator
+        extras dict.  Otherwise return ``None``.
+        """
+        resolved = self.model_resolver.add_ref(ref)
+        disc_info = self.allof_discriminator_schemas.get(resolved.path)
+        if disc_info is None:
+            return None
+        mapping: dict[str, str] = disc_info["mapping"]
+        child_data_types: list[DataType] = [
+            self.data_type(reference=self.model_resolver.add_ref(mapped_ref))
+            for mapped_ref in mapping.values()
+        ]
+        union_dt = self.data_type(data_types=child_data_types)
+        extras: dict[str, Any] = {
+            "discriminator": {
+                "propertyName": disc_info["propertyName"],
+                "mapping": mapping,
+            }
+        }
+        return union_dt, extras
+
     def parse_object_fields(
         self,
         obj: JsonSchemaObject,
@@ -1070,7 +1098,16 @@ class JsonSchemaParser(Parser):
                 )
                 continue
 
-            field_type = self.parse_item(modular_name, field, [*path, field_name])
+            # Check if this field directly references a schema with an allOf
+            # discriminator.  If so, expand the reference into a discriminated
+            # union of the mapped child types at parse time so the existing
+            # discriminator post-processing can assign Literal values.
+            disc_result = self._try_expand_allof_discriminator_field(field)
+            if disc_result is not None:
+                field_type, disc_extras = disc_result
+            else:
+                field_type = self.parse_item(modular_name, field, [*path, field_name])
+                disc_extras = None
 
             if self.force_optional_for_required_fields or (
                 self.apply_default_values_for_required_fields and field.has_default
@@ -1078,17 +1115,39 @@ class JsonSchemaParser(Parser):
                 required: bool = False
             else:
                 required = original_field_name in requires
-            fields.append(
-                self.get_object_field(
-                    field_name=field_name,
-                    field=field,
-                    required=required,
-                    field_type=field_type,
-                    alias=alias,
-                    original_field_name=original_field_name,
-                )
+
+            obj_field = self.get_object_field(
+                field_name=field_name,
+                field=field,
+                required=required,
+                field_type=field_type,
+                alias=alias,
+                original_field_name=original_field_name,
             )
+            if disc_extras is not None:
+                obj_field.extras.update(disc_extras)
+            fields.append(obj_field)
         return fields
+
+    def _try_expand_allof_discriminator_field(
+        self, field: JsonSchemaObject
+    ) -> tuple[DataType, dict[str, Any]] | None:
+        """Expand a field that references a discriminator schema (allOf pattern).
+
+        Handles both direct ``$ref`` fields and array fields whose items are a
+        ``$ref`` to a discriminator schema.
+
+        Returns ``(data_type, extras_dict)`` when expansion occurred, else ``None``.
+        """
+        if field.ref:
+            return self._resolve_allof_discriminator_ref(field.ref)
+        if field.is_array and isinstance(field.items, JsonSchemaObject) and field.items.ref:
+            result = self._resolve_allof_discriminator_ref(field.items.ref)
+            if result is not None:
+                union_dt, extras = result
+                list_dt = self.data_type(data_types=[union_dt], is_list=True)
+                return list_dt, extras
+        return None
 
     def parse_object(
         self,
@@ -1773,6 +1832,23 @@ class JsonSchemaParser(Parser):
         else:
             self.parse_root_type(name, obj, path)
         self.parse_ref(obj, path)
+
+        # Track schemas that define a discriminator with mapping but have no
+        # oneOf/anyOf.  These use the OpenAPI allOf-inheritance pattern where
+        # child schemas extend the base via allOf, and references to the base
+        # should be expanded into discriminated unions during post-processing.
+        if (
+            obj.discriminator
+            and isinstance(obj.discriminator, Discriminator)
+            and obj.discriminator.mapping
+            and not (obj.oneOf or obj.anyOf)
+        ):
+            ref = self.model_resolver.get(path)
+            if ref:
+                self.allof_discriminator_schemas[ref.path] = {
+                    "propertyName": obj.discriminator.propertyName,
+                    "mapping": obj.discriminator.mapping,
+                }
 
     def _get_context_source_path_parts(self) -> Iterator[tuple[Source, list[str]]]:
         """Get source and path parts for each input file with context managers."""
