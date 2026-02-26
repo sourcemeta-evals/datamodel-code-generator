@@ -1774,6 +1774,21 @@ class JsonSchemaParser(Parser):
             self.parse_root_type(name, obj, path)
         self.parse_ref(obj, path)
 
+        # Store discriminator mapping for allOf-based polymorphism.
+        # When a schema has a discriminator with mapping but no oneOf/anyOf,
+        # the mapping targets are child schemas that use allOf to inherit.
+        if (
+            obj.discriminator
+            and isinstance(obj.discriminator, Discriminator)
+            and obj.discriminator.mapping
+            and not obj.oneOf
+            and not obj.anyOf
+        ):
+            self._allof_discriminator_mappings.append({
+                "property_name": obj.discriminator.propertyName,
+                "mapping": obj.discriminator.mapping,
+            })
+
     def _get_context_source_path_parts(self) -> Iterator[tuple[Source, list[str]]]:
         """Get source and path parts for each input file with context managers."""
         if isinstance(self.source, list) or (isinstance(self.source, Path) and self.source.is_dir()):

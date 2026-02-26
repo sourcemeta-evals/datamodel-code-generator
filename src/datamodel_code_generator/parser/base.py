@@ -576,6 +576,7 @@ class Parser(ABC):
         self.default_field_extras: dict[str, Any] | None = default_field_extras
         self.formatters: list[Formatter] = formatters
         self.type_mappings: dict[tuple[str, str], str] = Parser._parse_type_mappings(type_mappings)
+        self._allof_discriminator_mappings: list[dict[str, Any]] = []
 
     @staticmethod
     def _parse_type_mappings(type_mappings: list[str] | None) -> dict[tuple[str, str], str]:
@@ -950,6 +951,83 @@ class Parser(ABC):
                     has_imported_literal = any(import_ == IMPORT_LITERAL for import_ in imports)
                     if has_imported_literal:  # pragma: no cover
                         imports.append(IMPORT_LITERAL)
+
+    def __apply_allof_discriminator_type(  # noqa: PLR0912
+        self,
+        models: list[DataModel],
+        imports: Imports,
+    ) -> None:
+        """Apply discriminator literal types for allOf-based polymorphism.
+
+        When a schema has a discriminator with mapping but no oneOf/anyOf,
+        child schemas use allOf to inherit from the parent. This method
+        sets literal types on the discriminator fields of those child models.
+        """
+        if not self._allof_discriminator_mappings:
+            return
+
+        for disc_info in self._allof_discriminator_mappings:
+            property_name: str = disc_info["property_name"]
+            mapping: dict[str, str] = disc_info["mapping"]
+            field_name, alias = self.model_resolver.get_valid_field_name_and_alias(
+                field_name=property_name
+            )
+
+            # Build a reverse mapping: ref_suffix -> discriminator_value
+            ref_to_disc_value: dict[str, str] = {}
+            for disc_value, ref in mapping.items():
+                # Normalize refs: strip leading '#/' prefix for matching
+                ref_suffix = ref.split("#/")[-1] if "#/" in ref else ref
+                ref_to_disc_value[ref_suffix] = disc_value
+
+            for model in models:
+                if not isinstance(
+                    model,
+                    (
+                        pydantic_model.BaseModel,
+                        pydantic_model_v2.BaseModel,
+                        dataclass_model.DataClass,
+                        msgspec_model.Struct,
+                    ),
+                ):
+                    continue
+
+                # Check if this model matches any ref in the mapping
+                model_path_suffix = model.path.split("#/")[-1] if "#/" in model.path else model.path
+                disc_value = ref_to_disc_value.get(model_path_suffix)
+                if disc_value is None:
+                    continue
+
+                type_names = [disc_value]
+
+                has_one_literal = False
+                for discriminator_field in model.fields:
+                    if field_name not in {discriminator_field.original_name, discriminator_field.name}:
+                        continue
+                    literals = discriminator_field.data_type.literals
+                    if len(literals) == 1 and literals[0] == type_names[0]:
+                        has_one_literal = True
+                        break
+                    for field_data_type in discriminator_field.data_type.all_data_types:
+                        if field_data_type.reference:
+                            field_data_type.remove_reference()
+                    discriminator_field.data_type = self.data_type(literals=type_names)
+                    discriminator_field.data_type.parent = discriminator_field
+                    discriminator_field.required = True
+                    imports.append(discriminator_field.imports)
+                    has_one_literal = True
+                if not has_one_literal:
+                    model.fields.append(
+                        self.data_model_field_type(
+                            name=field_name,
+                            data_type=self.data_type(literals=type_names),
+                            required=True,
+                            alias=alias,
+                        )
+                    )
+                has_imported_literal = any(import_ == IMPORT_LITERAL for import_ in imports)
+                if has_imported_literal:
+                    imports.append(IMPORT_LITERAL)
 
     @classmethod
     def _create_set_from_list(cls, data_type: DataType) -> DataType | None:
@@ -1504,6 +1582,7 @@ class Parser(ABC):
             self.__sort_models(models, imports)
             self.__change_field_name(models)
             self.__apply_discriminator_type(models, imports)
+            self.__apply_allof_discriminator_type(models, imports)
             self.__set_one_literal_on_default(models)
 
             processed_models.append(Processed(module, models, init, imports, scoped_model_resolver))
