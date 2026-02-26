@@ -1,0 +1,30 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "definitions": {
+    "colorEnum": {
+      "title": "Color",
+      "type": "string",
+      "description": "Available colors.",
+      "anyOf": [
+        {
+          "title": "red",
+          "const": "red"
+        },
+        {
+          "title": "green",
+          "const": "green"
+        },
+        {
+          "title": "blue",
+          "const": "blue"
+        }
+      ]
+    }
+  },
+  "type": "object",
+  "properties": {
+    "color": {
+      "$ref": "#/definitions/colorEnum"
+    }
+  }
+}
