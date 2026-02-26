@@ -3339,6 +3339,18 @@ def test_main_jsonschema_extras_in_oneof(output_file: Path) -> None:
 
 
 @pytest.mark.benchmark
+def test_main_jsonschema_oneof_const_enum(output_file: Path) -> None:
+    """Test that oneOf with const values generates an Enum class (issue #1925)."""
+    run_main_and_assert(
+        input_path=JSON_SCHEMA_DATA_PATH / "oneof_const_enum.json",
+        output_path=output_file,
+        input_file_type="jsonschema",
+        assert_func=assert_file_content,
+        expected_file="oneof_const_enum.py",
+    )
+
+
+@pytest.mark.benchmark
 @LEGACY_BLACK_SKIP
 def test_main_jsonschema_reserved_field_name_typed_dict(output_file: Path) -> None:
     """Test that 'schema' field is not renamed in TypedDict (Issue #1833)."""
