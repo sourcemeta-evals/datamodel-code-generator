@@ -626,7 +626,10 @@ typing_options.add_argument(
 )
 typing_options.add_argument(
     "--use-type-alias",
-    help="Use TypeAlias instead of root models (experimental)",
+    help="Generate Python type aliases instead of RootModel classes. "
+    "Uses 'type' statement for Python 3.12+, TypeAliasType for Pydantic v2 on 3.10-3.11, "
+    "and TypeAlias annotation for Pydantic v1. "
+    "Note: Type aliases don't support model_config or field-specific metadata like default/alias.",
     action="store_true",
     default=None,
 )
