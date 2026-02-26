@@ -1,0 +1,49 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "definitions": {
+    "nodejsModeEnum": {
+      "title": "NodeJsModeEnum",
+      "type": "string",
+      "description": "A long description here.",
+      "default": "npm",
+      "oneOf": [
+        {
+          "title": "npm",
+          "const": "npm"
+        },
+        {
+          "title": "yarn",
+          "const": "yarn"
+        },
+        {
+          "title": "npm ci",
+          "const": "npm_ci"
+        }
+      ]
+    },
+    "buildToolEnum": {
+      "title": "BuildToolEnum",
+      "type": "string",
+      "anyOf": [
+        {
+          "title": "webpack",
+          "const": "webpack"
+        },
+        {
+          "title": "vite",
+          "const": "vite"
+        }
+      ]
+    }
+  },
+  "type": "object",
+  "title": "Config",
+  "properties": {
+    "mode": {
+      "$ref": "#/definitions/nodejsModeEnum"
+    },
+    "build_tool": {
+      "$ref": "#/definitions/buildToolEnum"
+    }
+  }
+}
