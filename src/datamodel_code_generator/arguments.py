@@ -210,6 +210,15 @@ model_options.add_argument(
     default=None,
 )
 model_options.add_argument(
+    "--use-type-alias",
+    help=(
+        "Generate type aliases for root models instead of RootModel/custom root classes. "
+        "Limitations: field defaults/aliases/model config are not preserved on type aliases."
+    ),
+    action="store_true",
+    default=None,
+)
+model_options.add_argument(
     "--output-datetime-class",
     help="Choose Datetime class between AwareDatetime, NaiveDatetime or datetime. "
     "Each output model has its default mapping (for example pydantic: datetime, dataclass: str, ...)",

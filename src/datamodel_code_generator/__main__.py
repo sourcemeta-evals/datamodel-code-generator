@@ -361,6 +361,7 @@ class Config(BaseModel):
     http_query_parameters: Optional[Sequence[tuple[str, str]]] = None  # noqa: UP045
     treat_dot_as_module: bool = False
     use_exact_imports: bool = False
+    use_type_alias: bool = False
     union_mode: Optional[UnionMode] = None  # noqa: UP045
     output_datetime_class: Optional[DatetimeClassType] = None  # noqa: UP045
     keyword_only: bool = False
@@ -577,6 +578,7 @@ def main(args: Sequence[str] | None = None) -> Exit:  # noqa: PLR0911, PLR0912, 
             http_query_parameters=config.http_query_parameters,
             treat_dot_as_module=config.treat_dot_as_module,
             use_exact_imports=config.use_exact_imports,
+            use_type_alias=config.use_type_alias,
             union_mode=config.union_mode,
             output_datetime_class=config.output_datetime_class,
             keyword_only=config.keyword_only,

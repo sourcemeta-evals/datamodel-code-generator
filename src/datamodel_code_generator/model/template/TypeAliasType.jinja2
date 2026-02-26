@@ -1,0 +1,6 @@
+{{ class_name }} = TypeAliasType({{ class_name|tojson }}, {{ type_expression }})
+{%- if description %}
+"""
+{{ description }}
+"""
+{%- endif %}

@@ -282,6 +282,7 @@ def generate(  # noqa: PLR0912, PLR0913, PLR0914, PLR0915
     http_query_parameters: Sequence[tuple[str, str]] | None = None,
     treat_dot_as_module: bool = False,
     use_exact_imports: bool = False,
+    use_type_alias: bool = False,
     union_mode: UnionMode | None = None,
     output_datetime_class: DatetimeClassType | None = None,
     keyword_only: bool = False,
@@ -414,7 +415,7 @@ def generate(  # noqa: PLR0912, PLR0913, PLR0914, PLR0915
 
     from datamodel_code_generator.model import get_data_model_types  # noqa: PLC0415
 
-    data_model_types = get_data_model_types(output_model_type, target_python_version)
+    data_model_types = get_data_model_types(output_model_type, target_python_version, use_type_alias=use_type_alias)
     source = input_text or input_
     assert not isinstance(source, Mapping)
     parser = parser_class(
