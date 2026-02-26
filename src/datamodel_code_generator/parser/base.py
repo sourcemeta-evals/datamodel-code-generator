@@ -10,6 +10,7 @@ from __future__ import annotations
 import operator
 import re
 import sys
+from copy import deepcopy
 from abc import ABC, abstractmethod
 from collections import OrderedDict, defaultdict
 from collections.abc import Hashable
@@ -849,6 +850,35 @@ class Parser(ABC):
         for model in models:  # noqa: PLR1702
             for field in model.fields:
                 discriminator = field.extras.get("discriminator")
+                if (
+                    (not discriminator or not isinstance(discriminator, dict))
+                    and field.data_type.reference
+                    and isinstance(field.data_type.reference.source, DataModel)
+                ):
+                    source_discriminator = field.data_type.reference.source.extra_template_data.get("discriminator")
+                    if isinstance(source_discriminator, dict) and isinstance(source_discriminator.get("mapping"), dict):
+                        discriminator = deepcopy(source_discriminator)
+                        field.extras["discriminator"] = discriminator
+                        field.data_type = self.data_type(
+                            data_types=[
+                                self.data_type(
+                                    reference=(
+                                        next(
+                                            (
+                                                candidate.reference
+                                                for candidate in models
+                                                if candidate.path.split("#/")[-1] == ref_path.split("#/")[-1]
+                                            ),
+                                            None,
+                                        )
+                                        or self.model_resolver.add_ref(ref_path)
+                                    )
+                                )
+                                for ref_path in source_discriminator["mapping"].values()
+                            ]
+                        )
+                        field.data_type.parent = field
+                        imports.append(field.imports)
                 if not discriminator or not isinstance(discriminator, dict):
                     continue
                 property_name = discriminator.get("propertyName")
