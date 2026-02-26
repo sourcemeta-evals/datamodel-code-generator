@@ -273,6 +273,28 @@ class OpenAPIParser(JsonSchemaParser):
             }
         return result
 
+    def _get_discriminator_info_for_subtype(
+        self,
+        model_path: str,
+    ) -> tuple[dict[str, Any], str] | None:
+        """Get discriminator info for a model that is a subtype of a discriminated schema.
+
+        Overrides the base implementation to use OpenAPI-specific discriminator tracking.
+        """
+        # Extract the schema reference part from the model path
+        # model_path can be like "file.yaml#/components/schemas/Cat" or "#/components/schemas/Cat"
+        if "#" in model_path:
+            schema_ref = "#" + model_path.split("#", 1)[1]
+        else:
+            schema_ref = model_path
+
+        for parent_ref, subtypes in self._discriminator_subtypes.items():
+            if schema_ref in subtypes:
+                discriminator = self._discriminator_schemas.get(parent_ref)
+                if discriminator:
+                    return self._normalize_discriminator(discriminator), parent_ref
+        return None
+
     def _get_discriminator_union_type(self, ref: str) -> DataType | None:
         """Create a union type for discriminator subtypes if available.
 

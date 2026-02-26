@@ -1,0 +1,45 @@
+# Test discriminator with allOf when there's no container referencing the parent.
+# This is the exact example from the OpenAPI spec.
+# Previously, the discriminator literal types were not applied without a container.
+
+openapi: 3.1.1
+info:
+  title: Test
+  description: "Test API"
+  version: 1.0.0
+components:
+  schemas:
+    Pet:
+      type: object
+      required:
+        - petType
+      properties:
+        petType:
+          type: string
+      discriminator:
+        propertyName: petType
+        mapping:
+          cat: '#/components/schemas/Cat'
+          dog: '#/components/schemas/Dog'
+          lizard: '#/components/schemas/Lizard'
+    Cat:
+      allOf:
+        - $ref: '#/components/schemas/Pet'
+        - type: object
+          properties:
+            name:
+              type: string
+    Dog:
+      allOf:
+        - $ref: '#/components/schemas/Pet'
+        - type: object
+          properties:
+            bark:
+              type: string
+    Lizard:
+      allOf:
+        - $ref: '#/components/schemas/Pet'
+        - type: object
+          properties:
+            lovesRocks:
+              type: boolean

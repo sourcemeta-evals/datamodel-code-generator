@@ -1479,6 +1479,24 @@ class Parser(ABC, Generic[ParserConfigT, SchemaFeaturesT]):
                 )
                 cls._replace_model_in_list(models, model, merged_enum)
 
+    def _get_discriminator_info_for_subtype(
+        self,
+        model_path: str,
+    ) -> tuple[dict[str, Any], str] | None:
+        """Get discriminator info for a model that is a subtype of a discriminated schema.
+
+        This hook method is called during discriminator processing to check if a model
+        is a known subtype of a schema with a discriminator (via allOf inheritance).
+
+        Args:
+            model_path: The reference path of the model (e.g., "#/components/schemas/Cat")
+
+        Returns:
+            A tuple of (discriminator_dict, parent_ref) if the model is a discriminator subtype,
+            or None if not. The discriminator_dict contains 'propertyName' and optionally 'mapping'.
+        """
+        return None  # Base implementation returns None; OpenAPI parser overrides this
+
     def _create_discriminator_data_type(
         self,
         enum_source: Enum | None,
@@ -1700,6 +1718,108 @@ class Parser(ABC, Generic[ParserConfigT, SchemaFeaturesT]):
             has_imported_literal = any(import_ == IMPORT_LITERAL for import_ in imports)
             if has_imported_literal:  # pragma: no cover
                 imports.append(IMPORT_LITERAL)
+
+        # Process models that are known subtypes of discriminated schemas (allOf inheritance)
+        # but are not referenced by any field with discriminator info
+        processed_models: set[str] = set()
+        for model in models:
+            if not isinstance(model, DataModel) or not model.SUPPORTS_DISCRIMINATOR:
+                continue
+            model_path = model.path
+
+            # Skip if already processed via field discriminator
+            if model_path in processed_models:
+                continue
+
+            # Check if this model is a known subtype of a discriminated schema
+            discriminator_info = self._get_discriminator_info_for_subtype(model_path)
+            if not discriminator_info:
+                continue
+
+            discriminator, parent_ref = discriminator_info
+            property_name = discriminator.get("propertyName")
+            if not property_name:
+                continue
+
+            field_name, alias = self.model_resolver.get_valid_field_name_and_alias(
+                field_name=property_name, model_type=self.field_name_model_type
+            )
+            mapping = discriminator.get("mapping", {})
+
+            # Extract the schema reference part from model_path for comparison
+            # model_path can be like "file.yaml#/components/schemas/Cat" or "#/components/schemas/Cat"
+            if "#" in model_path:
+                schema_ref = "#" + model_path.split("#", 1)[1]
+            else:
+                schema_ref = model_path
+
+            # Find the discriminator value for this subtype from the mapping
+            type_names: list[str] = []
+            for name, path in mapping.items():
+                # Normalize the path for comparison
+                normalized_path = path
+                if not path.startswith("#"):
+                    normalized_path = f"#/components/schemas/{path}"
+                if normalized_path == schema_ref or path.split("/")[-1] == schema_ref.split("/")[-1]:
+                    type_names.append(name)
+                    break
+
+            if not type_names:
+                # Fall back to using the schema name as the discriminator value
+                type_names = [schema_ref.split("/")[-1]]
+
+            # Check if the model already has the discriminator field with correct literal
+            has_one_literal = False
+            for discriminator_field in model.fields:
+                if field_name not in {discriminator_field.original_name, discriminator_field.name}:
+                    continue
+                literals = discriminator_field.data_type.literals
+                expected_value = type_names[0] if type_names else None
+
+                if len(literals) == 1 and literals[0] == expected_value:
+                    has_one_literal = True
+                    break
+
+                # Update the field to use literal type
+                for field_data_type in discriminator_field.data_type.all_data_types:
+                    if field_data_type.reference:
+                        field_data_type.remove_reference()
+
+                discriminator_field.data_type = self._create_discriminator_data_type(
+                    None, type_names, model, imports
+                )
+                discriminator_field.data_type.parent = discriminator_field
+                discriminator_field.required = True
+                imports.append(discriminator_field.imports)
+                has_one_literal = True
+                break
+
+            if not has_one_literal:
+                # Add a new discriminator field
+                new_data_type = self._create_discriminator_data_type(None, type_names, model, imports)
+                single_alias: str | None = None
+                validation_aliases: list[str] | None = None
+                if isinstance(alias, list):
+                    validation_aliases = alias
+                else:
+                    single_alias = alias
+                model.fields.append(
+                    self.data_model_field_type(
+                        name=field_name,
+                        data_type=new_data_type,
+                        required=True,
+                        alias=single_alias,
+                        validation_aliases=validation_aliases,
+                        use_serialization_alias=self.use_serialization_alias,
+                    )
+                )
+
+            processed_models.add(model_path)
+
+        # Import Literal if needed for subtype processing
+        has_imported_literal = any(import_ == IMPORT_LITERAL for import_ in imports)
+        if has_imported_literal:
+            imports.append(IMPORT_LITERAL)
 
     @classmethod
     def _create_set_from_list(cls, data_type: DataType) -> DataType | None:
