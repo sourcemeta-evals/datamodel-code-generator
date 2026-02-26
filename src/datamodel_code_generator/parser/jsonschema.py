@@ -960,6 +960,79 @@ class JsonSchemaParser(Parser):
                     self.model_resolver.add(path, name, class_name=True, loaded=True)
                     union_models.extend(d.reference for d in self.parse_one_of(name, all_of_item, path) if d.reference)
 
+    def _apply_inherited_discriminator_to_all_of_model(
+        self,
+        model: DataModel,
+    ) -> None:
+        """Apply a parent discriminator mapping to an allOf child model."""
+
+        def normalize_path(value: str) -> str:
+            if "#/" not in value:
+                return value
+            prefix, fragment = value.split("#/", 1)
+            segments = [segment for segment in fragment.split("/") if segment != SPECIAL_PATH_FORMAT.format("allOf")]
+            joined = "/".join(segments)
+            return f"{prefix}#/{joined}" if prefix else f"#/{joined}"
+
+        def get_local_schema(ref: str) -> dict[str, YamlValue] | None:
+            if "#/" not in ref:
+                return None
+            try:
+                return get_model_by_path(self.raw_obj, ref.split("#/", 1)[1].split("/"))
+            except KeyError:
+                return None
+
+        normalized_model_path = normalize_path(model.path)
+        for base_class in model.base_classes:
+            if not base_class.reference:
+                continue
+            schema = get_local_schema(base_class.reference.path)
+            if not schema:
+                continue
+            discriminator = schema.get("discriminator")
+            if not isinstance(discriminator, dict):
+                continue
+            property_name = discriminator.get("propertyName")
+            if not isinstance(property_name, str):
+                continue
+            mapping = discriminator.get("mapping")
+            discriminator_values: list[str] = []
+            if isinstance(mapping, dict):
+                normalized_mapping = {
+                    key: normalize_path(value)
+                    for key, value in mapping.items()
+                    if isinstance(key, str) and isinstance(value, str)
+                }
+                discriminator_values = [
+                    key for key, value in normalized_mapping.items() if value.split("#/")[-1] == normalized_model_path.split("#/")[-1]
+                ]
+            if not discriminator_values:
+                discriminator_values = [normalized_model_path.split("/")[-1]]
+
+            field_name, alias = self.model_resolver.get_valid_field_name_and_alias(field_name=property_name)
+            for field in model.fields:
+                if field_name not in {field.original_name, field.name}:
+                    continue
+                for field_data_type in field.data_type.all_data_types:
+                    if field_data_type.reference:
+                        field_data_type.remove_reference()
+                field.data_type = self.data_type(literals=discriminator_values)
+                field.data_type.parent = field
+                field.required = True
+                if alias and not field.alias:
+                    field.alias = alias
+                return
+            model.fields.append(
+                self.data_model_field_type(
+                    name=field_name,
+                    data_type=self.data_type(literals=discriminator_values),
+                    required=True,
+                    alias=alias,
+                    original_name=property_name,
+                )
+            )
+            return
+
     def parse_all_of(
         self,
         name: str,
@@ -982,9 +1055,12 @@ class JsonSchemaParser(Parser):
         union_models: list[Reference] = []
         self._parse_all_of_item(name, obj, path, fields, base_classes, required, union_models)
         if not union_models:
-            return self._parse_object_common_part(
+            data_type = self._parse_object_common_part(
                 name, obj, path, ignore_duplicate_model, fields, base_classes, required
             )
+            if data_type.reference and isinstance(data_type.reference.source, DataModel):
+                self._apply_inherited_discriminator_to_all_of_model(data_type.reference.source)
+            return data_type
         reference = self.model_resolver.add(path, name, class_name=True, loaded=True)
         all_of_data_type = self._parse_object_common_part(
             name,
@@ -996,6 +1072,8 @@ class JsonSchemaParser(Parser):
             required,
         )
         assert all_of_data_type.reference is not None
+        if isinstance(all_of_data_type.reference.source, DataModel):
+            self._apply_inherited_discriminator_to_all_of_model(all_of_data_type.reference.source)
         data_type = self.data_type(
             data_types=[
                 self._parse_object_common_part(
