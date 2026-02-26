@@ -846,110 +846,133 @@ class Parser(ABC):
         models: list[DataModel],
         imports: Imports,
     ) -> None:
+        discriminator_model_types = (
+            pydantic_model.BaseModel,
+            pydantic_model_v2.BaseModel,
+            dataclass_model.DataClass,
+            msgspec_model.Struct,
+        )
+
+        def is_discriminator_model(model: DataModel) -> bool:
+            return isinstance(model, discriminator_model_types)
+
+        def apply_discriminator(
+            discriminator: dict[str, Any],
+            discriminator_models: list[
+                pydantic_model.BaseModel | pydantic_model_v2.BaseModel | dataclass_model.DataClass | msgspec_model.Struct
+            ],
+        ) -> None:
+            property_name = discriminator.get("propertyName")
+            if not property_name:  # pragma: no cover
+                return
+            field_name, alias = self.model_resolver.get_valid_field_name_and_alias(field_name=property_name)
+            discriminator["propertyName"] = field_name
+            mapping = discriminator.get("mapping", {})
+
+            for discriminator_model in discriminator_models:
+                type_names: list[str] = []
+
+                def check_paths(
+                    model: pydantic_model.BaseModel | pydantic_model_v2.BaseModel | Reference,
+                    mapping: dict[str, str],
+                    type_names: list[str] = type_names,
+                ) -> None:
+                    """Validate discriminator mapping paths for a model."""
+                    for name, path in mapping.items():
+                        if (model.path.split("#/")[-1] != path.split("#/")[-1]) and (
+                            path.startswith("#/") or model.path[:-1] != path.split("/")[-1]
+                        ):
+                            t_path = path[str(path).find("/") + 1 :]
+                            t_disc = model.path[: str(model.path).find("#")].lstrip("../")  # noqa: B005
+                            t_disc_2 = "/".join(t_disc.split("/")[1:])
+                            if t_path not in {t_disc, t_disc_2}:
+                                continue
+                        type_names.append(name)
+
+                for discriminator_field in discriminator_model.fields:
+                    if field_name not in {discriminator_field.original_name, discriminator_field.name}:
+                        continue
+                    if discriminator_field.extras.get("const"):
+                        type_names = [discriminator_field.extras["const"]]
+                        break
+
+                if not type_names:
+                    if mapping:
+                        check_paths(discriminator_model, mapping)  # pyright: ignore[reportArgumentType]
+                        if len(type_names) == 0:
+                            for base_class in discriminator_model.base_classes:
+                                if base_class.reference:
+                                    check_paths(base_class.reference, mapping)  # pyright: ignore[reportArgumentType]
+                    else:
+                        type_names = [discriminator_model.reference.name]
+
+                if not type_names:  # pragma: no cover
+                    msg = f"Discriminator type is not found. {discriminator_model.reference.path}"
+                    raise RuntimeError(msg)
+
+                has_one_literal = False
+                for discriminator_field in discriminator_model.fields:
+                    if field_name not in {discriminator_field.original_name, discriminator_field.name}:
+                        continue
+                    literals = discriminator_field.data_type.literals
+                    if len(literals) == 1 and literals[0] == (type_names[0] if type_names else None):
+                        has_one_literal = True
+                        if isinstance(discriminator_model, msgspec_model.Struct):  # pragma: no cover
+                            discriminator_model.add_base_class_kwarg("tag_field", f"'{field_name}'")
+                            discriminator_model.add_base_class_kwarg("tag", discriminator_field.represented_default)
+                            discriminator_field.extras["is_classvar"] = True
+                        break
+                    for field_data_type in discriminator_field.data_type.all_data_types:
+                        if field_data_type.reference:  # pragma: no cover
+                            field_data_type.remove_reference()
+                    discriminator_field.data_type = self.data_type(literals=type_names)
+                    discriminator_field.data_type.parent = discriminator_field
+                    discriminator_field.required = True
+                    imports.append(discriminator_field.imports)
+                    has_one_literal = True
+                if not has_one_literal:
+                    discriminator_model.fields.append(
+                        self.data_model_field_type(
+                            name=field_name,
+                            data_type=self.data_type(literals=type_names),
+                            required=True,
+                            alias=alias,
+                        )
+                    )
+                has_imported_literal = any(import_ == IMPORT_LITERAL for import_ in imports)
+                if has_imported_literal:  # pragma: no cover
+                    imports.append(IMPORT_LITERAL)
+
         for model in models:  # noqa: PLR1702
             for field in model.fields:
                 discriminator = field.extras.get("discriminator")
                 if not discriminator or not isinstance(discriminator, dict):
                     continue
-                property_name = discriminator.get("propertyName")
-                if not property_name:  # pragma: no cover
-                    continue
-                field_name, alias = self.model_resolver.get_valid_field_name_and_alias(field_name=property_name)
-                discriminator["propertyName"] = field_name
-                mapping = discriminator.get("mapping", {})
-                for data_type in field.data_type.data_types:
-                    if not data_type.reference:  # pragma: no cover
-                        continue
-                    discriminator_model = data_type.reference.source
+                apply_discriminator(
+                    discriminator,
+                    [
+                        data_type.reference.source
+                        for data_type in field.data_type.data_types
+                        if data_type.reference and is_discriminator_model(data_type.reference.source)
+                    ],
+                )
 
-                    if not isinstance(  # pragma: no cover
-                        discriminator_model,
-                        (
-                            pydantic_model.BaseModel,
-                            pydantic_model_v2.BaseModel,
-                            dataclass_model.DataClass,
-                            msgspec_model.Struct,
-                        ),
-                    ):
-                        continue  # pragma: no cover
-
-                    type_names: list[str] = []
-
-                    def check_paths(
-                        model: pydantic_model.BaseModel | pydantic_model_v2.BaseModel | Reference,
-                        mapping: dict[str, str],
-                        type_names: list[str] = type_names,
-                    ) -> None:
-                        """Validate discriminator mapping paths for a model."""
-                        for name, path in mapping.items():
-                            if (model.path.split("#/")[-1] != path.split("#/")[-1]) and (
-                                path.startswith("#/") or model.path[:-1] != path.split("/")[-1]
-                            ):
-                                t_path = path[str(path).find("/") + 1 :]
-                                t_disc = model.path[: str(model.path).find("#")].lstrip("../")  # noqa: B005
-                                t_disc_2 = "/".join(t_disc.split("/")[1:])
-                                if t_path not in {t_disc, t_disc_2}:
-                                    continue
-                            type_names.append(name)
-
-                    # First try to get the discriminator value from the const field
-                    for discriminator_field in discriminator_model.fields:
-                        if field_name not in {discriminator_field.original_name, discriminator_field.name}:
-                            continue
-                        if discriminator_field.extras.get("const"):
-                            type_names = [discriminator_field.extras["const"]]
-                            break
-
-                    # If no const value found, try to get it from the mapping
-                    if not type_names:
-                        # Check the main discriminator model path
-                        if mapping:
-                            check_paths(discriminator_model, mapping)  # pyright: ignore[reportArgumentType]
-
-                            # Check the base_classes if they exist
-                            if len(type_names) == 0:
-                                for base_class in discriminator_model.base_classes:
-                                    check_paths(base_class.reference, mapping)  # pyright: ignore[reportArgumentType]
-                        else:
-                            type_names = [discriminator_model.path.split("/")[-1]]
-
-                    if not type_names:  # pragma: no cover
-                        msg = f"Discriminator type is not found. {data_type.reference.path}"
-                        raise RuntimeError(msg)
-
-                    has_one_literal = False
-                    for discriminator_field in discriminator_model.fields:
-                        if field_name not in {discriminator_field.original_name, discriminator_field.name}:
-                            continue
-                        literals = discriminator_field.data_type.literals
-                        if len(literals) == 1 and literals[0] == (type_names[0] if type_names else None):
-                            has_one_literal = True
-                            if isinstance(discriminator_model, msgspec_model.Struct):  # pragma: no cover
-                                discriminator_model.add_base_class_kwarg("tag_field", f"'{field_name}'")
-                                discriminator_model.add_base_class_kwarg("tag", discriminator_field.represented_default)
-                                discriminator_field.extras["is_classvar"] = True
-                            # Found the discriminator field, no need to keep looking
-                            break
-                        for field_data_type in discriminator_field.data_type.all_data_types:
-                            if field_data_type.reference:  # pragma: no cover
-                                field_data_type.remove_reference()
-                        discriminator_field.data_type = self.data_type(literals=type_names)
-                        discriminator_field.data_type.parent = discriminator_field
-                        discriminator_field.required = True
-                        imports.append(discriminator_field.imports)
-                        has_one_literal = True
-                    if not has_one_literal:
-                        discriminator_model.fields.append(
-                            self.data_model_field_type(
-                                name=field_name,
-                                data_type=self.data_type(literals=type_names),
-                                required=True,
-                                alias=alias,
-                            )
-                        )
-                    has_imported_literal = any(import_ == IMPORT_LITERAL for import_ in imports)
-                    if has_imported_literal:  # pragma: no cover
-                        imports.append(IMPORT_LITERAL)
+        for model in models:
+            if not is_discriminator_model(model):
+                continue
+            extra_template_data = self.extra_template_data.get(model.path, {})
+            discriminator = extra_template_data.get("discriminator")
+            if not discriminator or not isinstance(discriminator, dict):
+                continue
+            apply_discriminator(
+                discriminator,
+                [
+                    candidate
+                    for candidate in models
+                    if is_discriminator_model(candidate)
+                    and any(base_class.reference and base_class.reference.path == model.path for base_class in candidate.base_classes)
+                ],
+            )
 
     @classmethod
     def _create_set_from_list(cls, data_type: DataType) -> DataType | None:
