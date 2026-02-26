@@ -1,0 +1,27 @@
+{
+    "$schema": "https://json-schema.org/draft/2019-09/schema",
+    "type": "object",
+    "title": "Config",
+    "properties": {
+        "mode": {
+            "title": "NodejsModeEnum",
+            "type": "string",
+            "description": "A long description here.",
+            "default": "npm",
+            "oneOf": [
+                {
+                    "title": "npm",
+                    "const": "npm"
+                },
+                {
+                    "title": "yarn",
+                    "const": "yarn"
+                },
+                {
+                    "title": "npm ci",
+                    "const": "npm_ci"
+                }
+            ]
+        }
+    }
+}

@@ -1817,16 +1817,16 @@ class JsonSchemaParser(Parser):
             return self.parse_root_type(name, item, path)
         if item.anyOf:
             return self.data_type(data_types=self.parse_any_of(name, item, get_special_path("anyOf", path)))
-            if item.oneOf:
-                oneof_enum_values = self._get_oneof_const_enum_values(item)
-                if oneof_enum_values is not None:
-                    enum_obj = self._build_enum_obj_from_oneof_const(item, oneof_enum_values)
-                    if self.should_parse_enum_as_literal(enum_obj):
-                        return self.parse_enum_as_literal(enum_obj)
-                    return self.parse_enum(
-                        name, enum_obj, get_special_path("enum", path), singular_name=singular_name
-                    )
-                return self.data_type(data_types=self.parse_one_of(name, item, get_special_path("oneOf", path)))
+        if item.oneOf:
+            oneof_enum_values = self._get_oneof_const_enum_values(item)
+            if oneof_enum_values is not None:
+                enum_obj = self._build_enum_obj_from_oneof_const(item, oneof_enum_values)
+                if self.should_parse_enum_as_literal(enum_obj):
+                    return self.parse_enum_as_literal(enum_obj)
+                return self.parse_enum(
+                    name, enum_obj, get_special_path("enum", path), singular_name=singular_name
+                )
+            return self.data_type(data_types=self.parse_one_of(name, item, get_special_path("oneOf", path)))
         if item.allOf:
             all_of_path = get_special_path("allOf", path)
             all_of_path = [self.model_resolver.resolve_ref(all_of_path)]
