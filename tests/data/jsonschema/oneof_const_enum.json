@@ -1,0 +1,100 @@
+{
+  "definitions": {
+    "nodejsModeEnum": {
+      "title": "NodejsModeEnum",
+      "type": "string",
+      "description": "A long description here.",
+      "default": "npm",
+      "oneOf": [
+        {
+          "title": "npm",
+          "const": "npm"
+        },
+        {
+          "title": "yarn",
+          "const": "yarn"
+        },
+        {
+          "title": "npm ci",
+          "const": "npm_ci"
+        }
+      ]
+    },
+    "anyOfModeEnum": {
+      "title": "AnyOfModeEnum",
+      "type": "string",
+      "description": "A long description here.",
+      "default": "npm",
+      "anyOf": [
+        {
+          "title": "npm",
+          "const": "npm"
+        },
+        {
+          "title": "yarn",
+          "const": "yarn"
+        },
+        {
+          "title": "npm ci",
+          "const": "npm_ci"
+        }
+      ]
+    },
+    "intEnum": {
+      "title": "IntEnum",
+      "type": "integer",
+      "oneOf": [
+        {
+          "title": "one",
+          "const": 1
+        },
+        {
+          "title": "two",
+          "const": 2
+        },
+        {
+          "title": "three",
+          "const": 3
+        }
+      ]
+    }
+  },
+  "type": "object",
+  "properties": {
+    "mode": {
+      "$ref": "#/definitions/nodejsModeEnum"
+    },
+    "mode2": {
+      "$ref": "#/definitions/anyOfModeEnum"
+    },
+    "count": {
+      "$ref": "#/definitions/intEnum"
+    },
+    "inline_oneof": {
+      "type": "string",
+      "oneOf": [
+        {
+          "title": "a",
+          "const": "alpha"
+        },
+        {
+          "title": "b",
+          "const": "beta"
+        }
+      ]
+    },
+    "inline_anyof": {
+      "type": "string",
+      "anyOf": [
+        {
+          "title": "x",
+          "const": "x_val"
+        },
+        {
+          "title": "y",
+          "const": "y_val"
+        }
+      ]
+    }
+  }
+}
