@@ -264,6 +264,15 @@ typing_options.add_argument(
     default=None,
 )
 typing_options.add_argument(
+    "--use-type-alias",
+    help=(
+        "Generate type aliases instead of root model classes. "
+        "Type aliases do not support all RootModel features/field metadata."
+    ),
+    action="store_true",
+    default=None,
+)
+typing_options.add_argument(
     "--use-generic-container-types",
     help="Use generic container types for type hinting (typing.Sequence, typing.Mapping). "
     "If `--use-standard-collections` option is set, then import from collections.abc instead of typing",

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 from argparse import Namespace
 from pathlib import Path
 from typing import TYPE_CHECKING
@@ -188,6 +189,107 @@ def test_frozen_dataclasses_with_keyword_only_command_line(tmp_path: Path) -> No
         output_file.read_text(encoding="utf-8")
         == (EXPECTED_MAIN_PATH / "frozen_dataclasses_keyword_only.py").read_text()
     )
+
+
+@freeze_time(TIMESTAMP)
+@pytest.mark.parametrize(
+    ("output_model_type", "target_python_version", "expected_snippets", "unexpected_snippets"),
+    [
+        (
+            DataModelType.PydanticBaseModel,
+            PythonVersion.PY_39,
+            [
+                "from typing_extensions import TypeAlias",
+                "SimpleString: TypeAlias = str",
+                "UnionType: TypeAlias = Union[str, int]",
+            ],
+            ["class SimpleString(RootModel", "TypeAliasType(", "type SimpleString ="],
+        ),
+        (
+            DataModelType.PydanticV2BaseModel,
+            PythonVersion.PY_311,
+            [
+                "from typing_extensions import TypeAliasType",
+                'SimpleString = TypeAliasType("SimpleString", str)',
+            ],
+            ["class SimpleString(RootModel", "type SimpleString ="],
+        ),
+        (
+            DataModelType.PydanticV2BaseModel,
+            PythonVersion.PY_312,
+            ["type SimpleString = str", "type UnionType = str | int"],
+            ["TypeAliasType(", "class SimpleString(RootModel"],
+        ),
+        (
+            DataModelType.DataclassesDataclass,
+            PythonVersion.PY_312,
+            ["type SimpleString = str"],
+            ["TypeAliasType(", "class SimpleString("],
+        ),
+    ],
+)
+def test_use_type_alias_root_models_version_matrix(
+    tmp_path: Path,
+    output_model_type: DataModelType,
+    target_python_version: PythonVersion,
+    expected_snippets: list[str],
+    unexpected_snippets: list[str],
+) -> None:
+    output_file = tmp_path / "output.py"
+    schema = {
+        "definitions": {
+            "SimpleString": {"type": "string"},
+            "UnionType": {"anyOf": [{"type": "string"}, {"type": "integer"}]},
+        }
+    }
+
+    generate(
+        json.dumps(schema),
+        input_file_type=InputFileType.JsonSchema,
+        output=output_file,
+        output_model_type=output_model_type,
+        target_python_version=target_python_version,
+        use_type_alias=True,
+        use_union_operator=target_python_version.has_union_operator,
+    )
+
+    content = output_file.read_text()
+    for expected_snippet in expected_snippets:
+        assert expected_snippet in content
+    for unexpected_snippet in unexpected_snippets:
+        assert unexpected_snippet not in content
+
+
+@freeze_time(TIMESTAMP)
+def test_use_type_alias_preserves_annotated_root_field(tmp_path: Path) -> None:
+    output_file = tmp_path / "output.py"
+    generate(
+        json.dumps(
+            {
+                "definitions": {
+                    "ConstrainedString": {
+                        "type": "string",
+                        "minLength": 1,
+                        "maxLength": 5,
+                    }
+                }
+            }
+        ),
+        input_file_type=InputFileType.JsonSchema,
+        output=output_file,
+        output_model_type=DataModelType.PydanticBaseModel,
+        target_python_version=PythonVersion.PY_39,
+        field_constraints=True,
+        use_annotated=True,
+        use_type_alias=True,
+    )
+
+    content = output_file.read_text()
+    assert "from typing import Annotated" in content
+    assert "from pydantic import Field" in content
+    assert "ConstrainedString: TypeAlias = Annotated[str, Field(" in content
+    assert "min_length=1" in content
+    assert "max_length=5" in content
 
 
 def test_filename_with_newline_injection(tmp_path: Path) -> None:

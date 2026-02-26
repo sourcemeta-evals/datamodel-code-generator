@@ -39,6 +39,7 @@ from datamodel_code_generator.model.base import (
     DataModelFieldBase,
 )
 from datamodel_code_generator.model.enum import Enum, Member
+from datamodel_code_generator.model.rootmodel import TypeAliasKind, TypeAliasRootModel
 from datamodel_code_generator.parser import DefaultPutDict, LiteralType
 from datamodel_code_generator.reference import ModelResolver, Reference
 from datamodel_code_generator.types import DataType, DataTypeManager, StrictTypes
@@ -357,6 +358,7 @@ class Parser(ABC):
         http_headers: Sequence[tuple[str, str]] | None = None,
         http_ignore_tls: bool = False,
         use_annotated: bool = False,
+        use_type_alias: bool = False,
         use_non_positive_negative_number_constrained_types: bool = False,
         original_field_name_delimiter: str | None = None,
         use_double_quotes: bool = False,
@@ -481,6 +483,7 @@ class Parser(ABC):
         self.http_query_parameters: Sequence[tuple[str, str]] | None = http_query_parameters
         self.http_ignore_tls: bool = http_ignore_tls
         self.use_annotated: bool = use_annotated
+        self.use_type_alias: bool = use_type_alias
         if self.use_annotated and not self.field_constraints:  # pragma: no cover
             msg = "`use_annotated=True` has to be used with `field_constraints=True`"
             raise Exception(msg)  # noqa: TRY002
@@ -1160,6 +1163,51 @@ class Parser(ABC):
                     field.alias = filed_name
                     field.name = new_filed_name
 
+    def __convert_root_models_to_type_aliases(self) -> None:
+        if not self.use_type_alias:
+            return
+
+        if self.data_model_type is pydantic_model_v2.BaseModel:
+            type_alias_kind = (
+                TypeAliasKind.TYPE_STATEMENT
+                if self.target_python_version in {PythonVersion.PY_312, PythonVersion.PY_313, PythonVersion.PY_314}
+                else TypeAliasKind.TYPE_ALIAS_TYPE
+            )
+        elif self.data_model_type is pydantic_model.BaseModel:
+            type_alias_kind = TypeAliasKind.TYPE_ALIAS
+        else:
+            type_alias_kind = (
+                TypeAliasKind.TYPE_STATEMENT
+                if self.target_python_version in {PythonVersion.PY_312, PythonVersion.PY_313, PythonVersion.PY_314}
+                else TypeAliasKind.TYPE_ALIAS
+            )
+
+        use_typing_extensions_type_alias = self.target_python_version is PythonVersion.PY_39
+        converted_results: list[DataModel] = []
+        for model in self.results:
+            if isinstance(model, self.data_model_root_type):
+                converted_results.append(
+                    TypeAliasRootModel(
+                        reference=model.reference,
+                        fields=model.fields,
+                        decorators=model.decorators,
+                        custom_template_dir=model._custom_template_dir,  # noqa: SLF001
+                        extra_template_data=self.extra_template_data,
+                        methods=model.methods,
+                        path=model.file_path,
+                        description=model.description,
+                        default=model.default,
+                        nullable=model.nullable,
+                        keyword_only=model.keyword_only,
+                        treat_dot_as_module=self.treat_dot_as_module,
+                        type_alias_kind=type_alias_kind,
+                        use_typing_extensions_type_alias=use_typing_extensions_type_alias,
+                    )
+                )
+            else:
+                converted_results.append(model)
+        self.results = converted_results
+
     def __set_one_literal_on_default(self, models: list[DataModel]) -> None:
         if not self.use_one_literal_as_default:
             return
@@ -1249,6 +1297,7 @@ class Parser(ABC):
         disable_future_imports: bool = False,  # noqa: FBT001, FBT002
     ) -> str | dict[tuple[str, ...], Result]:
         self.parse_raw()
+        self.__convert_root_models_to_type_aliases()
 
         if with_import and not disable_future_imports:
             self.imports.append(IMPORT_ANNOTATIONS)
