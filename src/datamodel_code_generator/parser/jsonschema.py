@@ -1291,6 +1291,36 @@ class JsonSchemaParser(Parser):
         """Parse oneOf schema into a list of data types."""
         return self.parse_combined_schema(name, obj, path, "oneOf")
 
+    @classmethod
+    def _get_oneof_const_enum_values(cls, obj: JsonSchemaObject) -> list[Any] | None:
+        """Extract enum values from oneOf items that all use const.
+
+        If all non-null oneOf items have a 'const' key in their extras,
+        return the list of const values (suitable for use as enum values).
+        Returns None if the pattern doesn't match.
+        """
+        if not obj.oneOf:
+            return None
+        const_values: list[Any] = []
+        for item in obj.oneOf:
+            if item.type == "null":
+                continue
+            if "const" not in item.extras:
+                return None
+            const_values.append(item.extras["const"])
+        if not const_values:
+            return None
+        return const_values
+
+    def _build_enum_obj_from_oneof_const(
+        self, obj: JsonSchemaObject, enum_values: list[Any]
+    ) -> JsonSchemaObject:
+        """Build a synthetic JsonSchemaObject with enum values from oneOf const items."""
+        obj_dict = obj.dict(exclude_unset=True, by_alias=True)
+        obj_dict["enum"] = enum_values
+        obj_dict.pop("oneOf", None)
+        return self.SCHEMA_OBJECT_TYPE.parse_obj(obj_dict)
+
     def _create_data_model(self, model_type: type[DataModel] | None = None, **kwargs: Any) -> DataModel:
         """Create data model instance with dataclass_arguments support for DataClass."""
         data_model_class = model_type or self.data_model_type
@@ -1787,8 +1817,16 @@ class JsonSchemaParser(Parser):
             return self.parse_root_type(name, item, path)
         if item.anyOf:
             return self.data_type(data_types=self.parse_any_of(name, item, get_special_path("anyOf", path)))
-        if item.oneOf:
-            return self.data_type(data_types=self.parse_one_of(name, item, get_special_path("oneOf", path)))
+            if item.oneOf:
+                oneof_enum_values = self._get_oneof_const_enum_values(item)
+                if oneof_enum_values is not None:
+                    enum_obj = self._build_enum_obj_from_oneof_const(item, oneof_enum_values)
+                    if self.should_parse_enum_as_literal(enum_obj):
+                        return self.parse_enum_as_literal(enum_obj)
+                    return self.parse_enum(
+                        name, enum_obj, get_special_path("enum", path), singular_name=singular_name
+                    )
+                return self.data_type(data_types=self.parse_one_of(name, item, get_special_path("oneOf", path)))
         if item.allOf:
             all_of_path = get_special_path("allOf", path)
             all_of_path = [self.model_resolver.resolve_ref(all_of_path)]
@@ -2420,9 +2458,17 @@ class JsonSchemaParser(Parser):
         elif obj.allOf:
             self.parse_all_of(name, obj, path)
         elif obj.oneOf or obj.anyOf:
-            data_type = self.parse_root_type(name, obj, path)
-            if isinstance(data_type, EmptyDataType) and obj.properties:
-                self.parse_object(name, obj, path)  # pragma: no cover
+            oneof_enum_values = self._get_oneof_const_enum_values(obj) if obj.oneOf and not obj.anyOf else None
+            if oneof_enum_values is not None:
+                enum_obj = self._build_enum_obj_from_oneof_const(obj, oneof_enum_values)
+                if self.should_parse_enum_as_literal(enum_obj):
+                    self.parse_root_type(name, enum_obj, path)
+                else:
+                    self.parse_enum(name, enum_obj, path)
+            else:
+                data_type = self.parse_root_type(name, obj, path)
+                if isinstance(data_type, EmptyDataType) and obj.properties:
+                    self.parse_object(name, obj, path)  # pragma: no cover
         elif obj.properties:
             if obj.has_multiple_types and isinstance(obj.type, list):
                 self._parse_multiple_types_with_properties(name, obj, obj.type, path)
