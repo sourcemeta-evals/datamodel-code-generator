@@ -295,6 +295,16 @@ typing_options.add_argument(
     default=None,
 )
 typing_options.add_argument(
+    "--use-type-alias",
+    help="Generate type aliases instead of RootModel classes for root types. "
+    "Output format depends on Python version and output model type: "
+    "Python 3.12+ uses `type` statement, "
+    "Pydantic v2 + Python 3.9-3.11 uses TypeAliasType, "
+    "otherwise uses TypeAlias annotation.",
+    action="store_true",
+    default=None,
+)
+typing_options.add_argument(
     "--use-union-operator",
     help="Use | operator for Union type (PEP 604).",
     action="store_true",
