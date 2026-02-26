@@ -28,6 +28,8 @@ from datamodel_code_generator import (
     snooper_to_methods,
 )
 from datamodel_code_generator.enums import OpenAPIVersion, VersionMode
+from datamodel_code_generator.imports import IMPORT_LITERAL
+from datamodel_code_generator.model.base import DataModel
 from datamodel_code_generator.parser.base import get_special_path
 from datamodel_code_generator.parser.jsonschema import (
     JsonSchemaObject,
@@ -47,6 +49,8 @@ if TYPE_CHECKING:
     from datamodel_code_generator._types import OpenAPIParserConfigDict
     from datamodel_code_generator.config import OpenAPIParserConfig
     from datamodel_code_generator.model import DataModelFieldBase
+    from datamodel_code_generator.imports import Imports
+    from datamodel_code_generator.parser.base import ModuleContext, ModulePath, ParseConfig, Result
     from datamodel_code_generator.parser.schema_version import OpenAPISchemaFeatures
 
 
@@ -208,6 +212,8 @@ class OpenAPIParser(JsonSchemaParser):
             )
         self._discriminator_schemas: dict[str, dict[str, Any]] = {}
         self._discriminator_subtypes: dict[str, list[str]] = defaultdict(list)
+        # Maps subtype ref to (discriminator_value, property_name) for allOf polymorphism
+        self._pending_discriminator_subtypes: dict[str, tuple[str, str]] = {}
 
     def get_ref_model(self, ref: str) -> dict[str, Any]:
         """Resolve a reference to its model definition."""
@@ -827,3 +833,152 @@ class OpenAPIParser(JsonSchemaParser):
                 if ref_in_allof in self._discriminator_schemas:
                     subtype_ref = f"#/components/schemas/{schema_name}"
                     self._discriminator_subtypes[ref_in_allof].append(subtype_ref)
+
+                    # Build pending discriminator info for allOf subtypes
+                    discriminator = self._discriminator_schemas[ref_in_allof]
+                    property_name = discriminator.get("propertyName")
+                    mapping = discriminator.get("mapping", {})
+                    # Find the discriminator value for this subtype from the mapping
+                    normalized_subtype_ref = self._normalize_discriminator_mapping_ref(subtype_ref)
+                    discriminator_value = None
+                    for value, mapped_ref in mapping.items():
+                        normalized_mapped = self._normalize_discriminator_mapping_ref(mapped_ref)
+                        if normalized_mapped == normalized_subtype_ref:
+                            discriminator_value = value
+                            break
+                    if discriminator_value and property_name:
+                        # Store the original property name; field name and alias will be
+                        # computed at apply time when all field name transformations are known
+                        self._pending_discriminator_subtypes[subtype_ref] = (
+                            discriminator_value,
+                            property_name,  # Store original property name
+                        )
+
+    def _apply_allof_discriminator_to_models(
+        self,
+        models: list[DataModel],
+        imports: Imports,
+    ) -> None:
+        """Apply discriminator literal types to allOf subtypes.
+
+        For schemas that inherit from a discriminator-enabled parent via allOf,
+        this method adds the discriminator field with the appropriate Literal type.
+        This ensures proper polymorphism support even when the parent schema
+        isn't directly referenced by any field.
+        """
+        if not self._pending_discriminator_subtypes:
+            return
+
+        for model in models:
+            # Check if this model is a subtype that needs discriminator
+            if not isinstance(model, DataModel) or not model.reference:
+                continue
+
+            model_ref = model.reference.path
+            # Extract the path component after # for matching
+            # Model paths may be like "filename.yaml#/components/schemas/Cat"
+            # while pending keys are like "#/components/schemas/Cat"
+            ref_for_lookup = model_ref
+            if "#" in model_ref:
+                ref_for_lookup = "#" + model_ref.split("#", 1)[1]
+
+            if ref_for_lookup not in self._pending_discriminator_subtypes:
+                continue
+
+            discriminator_value, property_name = self._pending_discriminator_subtypes[ref_for_lookup]
+
+            # Get the field name and alias using the model resolver
+            # This applies the same transformations (snake_case, etc.) as regular fields
+            field_name, alias = self.model_resolver.get_valid_field_name_and_alias(
+                field_name=property_name,
+                model_type=self.field_name_model_type,
+            )
+            # If the field name was transformed (e.g., snake_case), use original as alias
+            # Handle both single alias (str) and multiple aliases (list[str]) cases
+            single_alias: str | None = None
+            validation_aliases: list[str] | None = None
+            if isinstance(alias, list):
+                validation_aliases = alias
+            elif alias and alias != property_name:
+                single_alias = alias
+            elif field_name != property_name:
+                single_alias = property_name
+
+            # Check if the discriminator field already has the correct literal type
+            existing_field = None
+            for field in model.fields:
+                if field.name == field_name or field.original_name == property_name:
+                    existing_field = field
+                    break
+
+            # If field already has literals set correctly, skip
+            if existing_field and existing_field.data_type.literals:
+                if discriminator_value in existing_field.data_type.literals:
+                    continue
+
+            # Create the Literal data type
+            new_data_type = self.data_type(literals=[discriminator_value])
+
+            if existing_field:
+                # Update existing field to use Literal type
+                existing_field.data_type = new_data_type
+                existing_field.data_type.parent = existing_field
+                existing_field.required = True
+                imports.append(existing_field.imports)
+            else:
+                # Create new discriminator field with Literal type
+                new_field = self.data_model_field_type(
+                    name=field_name,
+                    data_type=new_data_type,
+                    required=True,
+                    alias=single_alias,
+                    validation_aliases=validation_aliases,
+                    use_serialization_alias=self.use_serialization_alias,
+                )
+                model.fields.append(new_field)
+                imports.append(new_field.imports)
+
+            # Ensure Literal is imported
+            imports.append(IMPORT_LITERAL)
+
+    def _process_single_module(
+        self,
+        module_: ModulePath,
+        models: list[DataModel],
+        results: dict[ModulePath, Result],
+        config: ParseConfig,
+        internal_modules: set[ModulePath],
+        model_path_to_module_name: dict[str, str],
+        require_update_action_models: list[str],
+        unused_models: list[DataModel],
+    ) -> ModuleContext:
+        """Process a single module, applying allOf discriminator types before parent processing."""
+        # First, apply discriminator literals to allOf subtypes
+        # This must happen before __apply_discriminator_type in the parent class
+        from datamodel_code_generator.imports import Imports  # noqa: PLC0415
+
+        temp_imports = Imports(self.use_exact_imports)
+        self._apply_allof_discriminator_to_models(models, temp_imports)
+
+        # Call parent's implementation
+        context = super()._process_single_module(
+            module_,
+            models,
+            results,
+            config,
+            internal_modules,
+            model_path_to_module_name,
+            require_update_action_models,
+            unused_models,
+        )
+
+        # Merge the discriminator imports into the context imports
+        # Need to iterate over the temp_imports and add each Import to context.imports
+        for from_, import_names in temp_imports.items():
+            for import_name in import_names:
+                # Reconstruct the Import object
+                from datamodel_code_generator.imports import Import  # noqa: PLC0415
+
+                context.imports.append(Import(from_=from_, import_=import_name))
+
+        return context
