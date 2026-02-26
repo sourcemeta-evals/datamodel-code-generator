@@ -1389,10 +1389,18 @@ class Parser(ABC):
                 result += [code]
 
                 if self.dump_resolve_reference_action is not None:
+                    from datamodel_code_generator.model.type_alias import (  # noqa: PLC0415
+                        NativeTypeAliasModel,
+                        TypeAliasModel,
+                    )
+
                     result += [
                         "\n",
                         self.dump_resolve_reference_action(
-                            m.reference.short_name for m in models if m.path in require_update_action_models
+                            m.reference.short_name
+                            for m in models
+                            if m.path in require_update_action_models
+                            and not isinstance(m, (TypeAliasModel, NativeTypeAliasModel))
                         ),
                     ]
             if not result and not init:
