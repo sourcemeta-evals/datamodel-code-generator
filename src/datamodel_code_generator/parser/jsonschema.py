@@ -722,6 +722,57 @@ class JsonSchemaParser(Parser):
         """Set the root $id in the model resolver."""
         self.model_resolver.set_root_id(value)
 
+    def _is_oneof_const_enum(self, obj: JsonSchemaObject) -> bool:
+        """Check if oneOf/anyOf items all have const values, representing an enum pattern."""
+        items: list[JsonSchemaObject] = obj.oneOf or obj.anyOf
+        if not items:
+            return False
+        # All non-null items must have a const value and no complex structure
+        const_items = [item for item in items if item.type != "null"]
+        if not const_items:
+            return False
+        return all(
+            "const" in item.extras
+            and not item.properties
+            and not item.ref
+            and not item.anyOf
+            and not item.oneOf
+            and not item.allOf
+            for item in const_items
+        )
+
+    def _convert_oneof_const_to_enum_obj(self, obj: JsonSchemaObject) -> JsonSchemaObject:
+        """Convert a oneOf/anyOf with const items into an equivalent enum schema object."""
+        items = obj.oneOf or obj.anyOf
+        enum_values = [item.extras["const"] for item in items if item.type != "null"]
+        # Build a new schema dict preserving the parent's type, description, title, default
+        schema_dict: dict[str, Any] = {}
+        if obj.type:
+            schema_dict["type"] = obj.type
+        elif enum_values and all(isinstance(v, str) for v in enum_values):
+            schema_dict["type"] = "string"
+        elif enum_values and all(isinstance(v, int) for v in enum_values):
+            schema_dict["type"] = "integer"
+        if obj.description:
+            schema_dict["description"] = obj.description
+        if obj.title:
+            schema_dict["title"] = obj.title
+        if obj.has_default:
+            schema_dict["default"] = obj.default
+        # Collect x-enum-varnames from item titles if available
+        varnames = []
+        for item in items:
+            if item.type == "null":
+                continue
+            if item.title:
+                varnames.append(item.title)
+            else:
+                varnames.append(str(item.extras["const"]))
+        if varnames and len(varnames) == len(enum_values):
+            schema_dict["x-enum-varnames"] = varnames
+        schema_dict["enum"] = enum_values
+        return self.SCHEMA_OBJECT_TYPE.parse_obj(schema_dict)
+
     def should_parse_enum_as_literal(self, obj: JsonSchemaObject) -> bool:
         """Determine if an enum should be parsed as a literal type."""
         return self.enum_field_as_literal == LiteralType.All or (
@@ -1786,8 +1837,18 @@ class JsonSchemaParser(Parser):
         if item.discriminator and parent and parent.is_array and (item.oneOf or item.anyOf):
             return self.parse_root_type(name, item, path)
         if item.anyOf:
+            if self._is_oneof_const_enum(item):
+                enum_obj = self._convert_oneof_const_to_enum_obj(item)
+                if self.should_parse_enum_as_literal(enum_obj):
+                    return self.parse_enum_as_literal(enum_obj)
+                return self.parse_enum(name, enum_obj, get_special_path("enum", path), singular_name=singular_name)
             return self.data_type(data_types=self.parse_any_of(name, item, get_special_path("anyOf", path)))
         if item.oneOf:
+            if self._is_oneof_const_enum(item):
+                enum_obj = self._convert_oneof_const_to_enum_obj(item)
+                if self.should_parse_enum_as_literal(enum_obj):
+                    return self.parse_enum_as_literal(enum_obj)
+                return self.parse_enum(name, enum_obj, get_special_path("enum", path), singular_name=singular_name)
             return self.data_type(data_types=self.parse_one_of(name, item, get_special_path("oneOf", path)))
         if item.allOf:
             all_of_path = get_special_path("allOf", path)
@@ -1983,18 +2044,25 @@ class JsonSchemaParser(Parser):
                 name, obj, get_special_path("array", path)
             ).data_type  # pragma: no cover
         elif obj.anyOf or obj.oneOf:
-            reference = self.model_resolver.add(path, name, loaded=True, class_name=True)
-            if obj.anyOf:
-                data_types: list[DataType] = self.parse_any_of(name, obj, get_special_path("anyOf", path))
+            if self._is_oneof_const_enum(obj):
+                enum_obj = self._convert_oneof_const_to_enum_obj(obj)
+                if self.should_parse_enum_as_literal(enum_obj):
+                    data_type = self.parse_enum_as_literal(enum_obj)
+                else:
+                    return self.parse_enum(name, enum_obj, path)
             else:
-                data_types = self.parse_one_of(name, obj, get_special_path("oneOf", path))
+                reference = self.model_resolver.add(path, name, loaded=True, class_name=True)
+                if obj.anyOf:
+                    data_types: list[DataType] = self.parse_any_of(name, obj, get_special_path("anyOf", path))
+                else:
+                    data_types = self.parse_one_of(name, obj, get_special_path("oneOf", path))
 
-            if len(data_types) > 1:  # pragma: no cover
-                data_type = self.data_type(data_types=data_types)
-            elif not data_types:  # pragma: no cover
-                return EmptyDataType()
-            else:  # pragma: no cover
-                data_type = data_types[0]
+                if len(data_types) > 1:  # pragma: no cover
+                    data_type = self.data_type(data_types=data_types)
+                elif not data_types:  # pragma: no cover
+                    return EmptyDataType()
+                else:  # pragma: no cover
+                    data_type = data_types[0]
         elif obj.patternProperties:
             data_type = self.parse_pattern_properties(name, obj.patternProperties, path)
         elif obj.enum:
@@ -2420,9 +2488,16 @@ class JsonSchemaParser(Parser):
         elif obj.allOf:
             self.parse_all_of(name, obj, path)
         elif obj.oneOf or obj.anyOf:
-            data_type = self.parse_root_type(name, obj, path)
-            if isinstance(data_type, EmptyDataType) and obj.properties:
-                self.parse_object(name, obj, path)  # pragma: no cover
+            if self._is_oneof_const_enum(obj):
+                enum_obj = self._convert_oneof_const_to_enum_obj(obj)
+                if self.should_parse_enum_as_literal(enum_obj):
+                    self.parse_root_type(name, obj, path)
+                else:
+                    self.parse_enum(name, enum_obj, path)
+            else:
+                data_type = self.parse_root_type(name, obj, path)
+                if isinstance(data_type, EmptyDataType) and obj.properties:
+                    self.parse_object(name, obj, path)  # pragma: no cover
         elif obj.properties:
             if obj.has_multiple_types and isinstance(obj.type, list):
                 self._parse_multiple_types_with_properties(name, obj, obj.type, path)
