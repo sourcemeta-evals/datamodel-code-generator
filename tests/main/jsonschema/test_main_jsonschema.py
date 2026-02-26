@@ -1884,6 +1884,17 @@ def test_main_jsonschema_object_has_one_of(output_file: Path) -> None:
     )
 
 
+def test_main_jsonschema_one_of_with_const(output_file: Path) -> None:
+    """Test oneOf with const values generates an enum."""
+    run_main_and_assert(
+        input_path=JSON_SCHEMA_DATA_PATH / "one_of_with_const.json",
+        output_path=output_file,
+        input_file_type="jsonschema",
+        assert_func=assert_file_content,
+        expected_file="one_of_with_const.py",
+    )
+
+
 def test_main_jsonschema_json_pointer_array(output_file: Path) -> None:
     """Test JSON pointer with arrays."""
     run_main_and_assert(
