@@ -295,6 +295,14 @@ typing_options.add_argument(
     default=None,
 )
 typing_options.add_argument(
+    "--use-type-alias",
+    help="Generate type aliases instead of RootModel classes. "
+    "Uses `type` statement for Python 3.12+, TypeAliasType for Pydantic v2 on Python 3.9-3.11, "
+    "and TypeAlias annotation for Pydantic v1 and other output types on Python 3.9-3.11.",
+    action="store_true",
+    default=None,
+)
+typing_options.add_argument(
     "--use-union-operator",
     help="Use | operator for Union type (PEP 604).",
     action="store_true",
