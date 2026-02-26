@@ -1873,6 +1873,17 @@ def test_main_jsonschema_nullable_object(output_file: Path) -> None:
     )
 
 
+def test_main_jsonschema_one_of_const_enum(output_file: Path) -> None:
+    """Test oneOf with const values generates an enum."""
+    run_main_and_assert(
+        input_path=JSON_SCHEMA_DATA_PATH / "one_of_const_enum.json",
+        output_path=output_file,
+        input_file_type="jsonschema",
+        assert_func=assert_file_content,
+        expected_file="one_of_const_enum.py",
+    )
+
+
 def test_main_jsonschema_object_has_one_of(output_file: Path) -> None:
     """Test object with oneOf constraint."""
     run_main_and_assert(

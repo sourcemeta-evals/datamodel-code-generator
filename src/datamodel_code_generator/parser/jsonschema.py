@@ -728,6 +728,28 @@ class JsonSchemaParser(Parser):
             self.enum_field_as_literal == LiteralType.One and len(obj.enum) == 1
         )
 
+    def _is_one_of_const_enum(self, obj: JsonSchemaObject) -> bool:
+        """Check if oneOf items all have const values, representing an enum pattern."""
+        if not obj.oneOf:
+            return False
+        non_null_items = [item for item in obj.oneOf if item.type != "null"]
+        if not non_null_items:
+            return False
+        return all("const" in item.extras for item in non_null_items)
+
+    def _build_enum_from_one_of_const(self, obj: JsonSchemaObject) -> JsonSchemaObject:
+        """Build an enum schema object from oneOf items with const values."""
+        enum_values: list[Any] = []
+        for item in obj.oneOf:
+            if item.type == "null":
+                enum_values.append(None)
+            else:
+                enum_values.append(item.extras["const"])
+
+        data = obj.dict(exclude={"oneOf"}, exclude_unset=True, by_alias=True)
+        data["enum"] = enum_values
+        return self.SCHEMA_OBJECT_TYPE.parse_obj(data)
+
     def is_constraints_field(self, obj: JsonSchemaObject) -> bool:
         """Check if a field should include constraints."""
         return obj.is_array or (
@@ -1785,6 +1807,11 @@ class JsonSchemaParser(Parser):
             return self.parse_array_fields(name, item, get_special_path("array", path)).data_type
         if item.discriminator and parent and parent.is_array and (item.oneOf or item.anyOf):
             return self.parse_root_type(name, item, path)
+        if item.oneOf and self._is_one_of_const_enum(item):
+            enum_item = self._build_enum_from_one_of_const(item)
+            if self.should_parse_enum_as_literal(enum_item):
+                return self.parse_enum_as_literal(enum_item)
+            return self.parse_enum(name, enum_item, get_special_path("enum", path), singular_name=singular_name)
         if item.anyOf:
             return self.data_type(data_types=self.parse_any_of(name, item, get_special_path("anyOf", path)))
         if item.oneOf:
@@ -1982,6 +2009,12 @@ class JsonSchemaParser(Parser):
             data_type = self.parse_array_fields(
                 name, obj, get_special_path("array", path)
             ).data_type  # pragma: no cover
+        elif obj.oneOf and self._is_one_of_const_enum(obj):
+            enum_obj = self._build_enum_from_one_of_const(obj)
+            if self.should_parse_enum_as_literal(enum_obj):
+                data_type = self.parse_enum_as_literal(enum_obj)
+            else:
+                data_type = self.parse_enum(name, enum_obj, path)
         elif obj.anyOf or obj.oneOf:
             reference = self.model_resolver.add(path, name, loaded=True, class_name=True)
             if obj.anyOf:
@@ -2419,6 +2452,12 @@ class JsonSchemaParser(Parser):
             self.parse_array(name, obj, path)
         elif obj.allOf:
             self.parse_all_of(name, obj, path)
+        elif obj.oneOf and self._is_one_of_const_enum(obj):
+            enum_obj = self._build_enum_from_one_of_const(obj)
+            if not self.should_parse_enum_as_literal(enum_obj):
+                self.parse_enum(name, enum_obj, path)
+            else:
+                self.parse_root_type(name, enum_obj, path)
         elif obj.oneOf or obj.anyOf:
             data_type = self.parse_root_type(name, obj, path)
             if isinstance(data_type, EmptyDataType) and obj.properties:
