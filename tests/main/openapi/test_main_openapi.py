@@ -281,6 +281,30 @@ def test_main_openapi_discriminator_allof_no_subtypes(output_file: Path) -> None
     )
 
 
+def test_main_openapi_discriminator_allof_standalone(output_file: Path) -> None:
+    """Test OpenAPI discriminator with allOf but no container reference.
+
+    This tests that discriminator literals are applied to subtypes even when
+    the parent schema isn't referenced from any field. This is the case
+    described in https://spec.openapis.org/oas/v3.1.1.html#examples-1 where
+    Pet has a discriminator and Cat/Dog/Lizard extend it via allOf.
+    """
+    run_main_and_assert(
+        input_path=OPEN_API_DATA_PATH / "discriminator_allof_standalone.yaml",
+        output_path=output_file,
+        input_file_type="openapi",
+        assert_func=assert_file_content,
+        expected_file=EXPECTED_OPENAPI_PATH / "discriminator" / "allof_standalone.py",
+        extra_args=[
+            "--output-model-type",
+            "pydantic_v2.BaseModel",
+            "--snake-case-field",
+            "--use-annotated",
+            "--use-union-operator",
+        ],
+    )
+
+
 def test_main_openapi_discriminator_short_mapping_names(output_file: Path) -> None:
     """Test OpenAPI generation with discriminator using short mapping names.
 

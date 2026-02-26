@@ -1,0 +1,45 @@
+# Test discriminator with allOf but no container reference
+# This tests that discriminator literals are applied to subtypes even when
+# the parent schema isn't referenced from any field
+
+openapi: 3.1.1
+info:
+  title: Test
+  description: "Test API"
+  version: 1.0.0
+components:
+  schemas:
+    Pet:
+      type: object
+      required:
+        - petType
+      properties:
+        petType:
+          type: string
+      discriminator:
+        propertyName: petType
+        mapping:
+          cat: '#/components/schemas/Cat'
+          dog: '#/components/schemas/Dog'
+          lizard: '#/components/schemas/Lizard'
+    Cat:
+      allOf:
+        - $ref: '#/components/schemas/Pet'
+        - type: object
+          properties:
+            name:
+              type: string
+    Dog:
+      allOf:
+        - $ref: '#/components/schemas/Pet'
+        - type: object
+          properties:
+            bark:
+              type: string
+    Lizard:
+      allOf:
+        - $ref: '#/components/schemas/Pet'
+        - type: object
+          properties:
+            lovesRocks:
+              type: boolean
