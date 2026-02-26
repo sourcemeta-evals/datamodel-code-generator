@@ -854,7 +854,11 @@ class Parser(ABC):
         )
 
         def check_paths(
-            model: pydantic_model.BaseModel | pydantic_model_v2.BaseModel | Reference,
+            model: pydantic_model.BaseModel
+            | pydantic_model_v2.BaseModel
+            | dataclass_model.DataClass
+            | msgspec_model.Struct
+            | Reference,
             mapping: dict[str, str],
             type_names: list[str],
         ) -> None:
@@ -967,6 +971,26 @@ class Parser(ABC):
                         raise RuntimeError(msg)
                     apply_type_names(discriminator_model, field_name, alias, type_names)
 
+        def has_base_model(
+            target_model: pydantic_model.BaseModel | pydantic_model_v2.BaseModel | dataclass_model.DataClass | msgspec_model.Struct,
+            base_model: DataModel,
+        ) -> bool:
+            if not base_model.reference:  # pragma: no cover
+                return False
+            base_path = base_model.reference.path
+            references_to_check = [b.reference for b in target_model.base_classes if b.reference]
+            checked_paths: set[str] = set()
+            while references_to_check:
+                reference = references_to_check.pop()
+                if reference.path in checked_paths:
+                    continue
+                if reference.path == base_path:
+                    return True
+                checked_paths.add(reference.path)
+                if isinstance(reference.source, DataModel):
+                    references_to_check.extend(b.reference for b in reference.source.base_classes if b.reference)
+            return False
+
         for model in models:
             discriminator = model.extra_template_data.get("discriminator")
             if not discriminator or not isinstance(discriminator, dict):
@@ -981,6 +1005,8 @@ class Parser(ABC):
                 continue
             for discriminator_model in models:
                 if discriminator_model is model or not isinstance(discriminator_model, supported_model_types):
+                    continue
+                if not has_base_model(discriminator_model, model):
                     continue
                 type_names = get_type_names(discriminator_model, field_name, mapping)
                 if type_names:
