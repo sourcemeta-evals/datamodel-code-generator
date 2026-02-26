@@ -760,6 +760,11 @@ class JsonSchemaParser(Parser):
         if obj.title:
             self.extra_template_data[path]["title"] = obj.title
 
+    def set_discriminator(self, path: str, obj: JsonSchemaObject) -> None:
+        """Set discriminator metadata in extra template data."""
+        if isinstance(obj.discriminator, Discriminator):
+            self.extra_template_data[path]["discriminator"] = obj.discriminator.dict(exclude_none=True)
+
     def _deep_merge(self, dict1: dict[Any, Any], dict2: dict[Any, Any]) -> dict[Any, Any]:
         """Deep merge two dictionaries, combining nested dicts and lists."""
         result = dict1.copy()
@@ -901,6 +906,7 @@ class JsonSchemaParser(Parser):
             name = obj.title
         reference = self.model_resolver.add(path, name, class_name=True, loaded=True)
         self.set_additional_properties(reference.path, obj)
+        self.set_discriminator(reference.path, obj)
 
         data_model_type = self._create_data_model(
             reference=reference,
@@ -1146,6 +1152,7 @@ class JsonSchemaParser(Parser):
             data_model_type_class = self.data_model_root_type
 
         self.set_additional_properties(reference.path, obj)
+        self.set_discriminator(reference.path, obj)
 
         data_model_type = self._create_data_model(
             model_type=data_model_type_class,
