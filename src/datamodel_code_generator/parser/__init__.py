@@ -43,6 +43,7 @@ class DefaultPutDict(UserDict[TK, TV]):
         raise ValueError(msg)  # pragma: no cover
 
 
+# Exported symbols for the parser package
 __all__ = [
     "DefaultPutDict",
     "LiteralType",
