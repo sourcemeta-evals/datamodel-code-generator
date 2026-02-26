@@ -298,6 +298,52 @@ def test_parse_one_of_object(source_obj: dict[str, Any], generated_classes: str)
     assert dump_templates(list(parser.results)) == generated_classes
 
 
+def test_parse_oneof_with_const_generates_enum() -> None:
+    parser = JsonSchemaParser("")
+    parser.parse_raw_obj(
+        "NodeJsModeEnum",
+        {
+            "type": "string",
+            "oneOf": [
+                {"title": "npm", "const": "npm"},
+                {"title": "yarn", "const": "yarn"},
+                {"title": "npm ci", "const": "npm_ci"},
+            ],
+        },
+        [],
+    )
+    assert (
+        dump_templates(list(parser.results))
+        == """class NodeJsModeEnum(Enum):
+    npm = 'npm'
+    yarn = 'yarn'
+    npm_ci = 'npm_ci'"""
+    )
+
+
+def test_parse_anyof_with_const_generates_enum() -> None:
+    parser = JsonSchemaParser("")
+    parser.parse_raw_obj(
+        "NodeJsModeEnum",
+        {
+            "type": "string",
+            "anyOf": [
+                {"title": "npm", "const": "npm"},
+                {"title": "yarn", "const": "yarn"},
+                {"title": "npm ci", "const": "npm_ci"},
+            ],
+        },
+        [],
+    )
+    assert (
+        dump_templates(list(parser.results))
+        == """class NodeJsModeEnum(Enum):
+    npm = 'npm'
+    yarn = 'yarn'
+    npm_ci = 'npm_ci'"""
+    )
+
+
 @pytest.mark.parametrize(
     ("source_obj", "generated_classes"),
     [
