@@ -960,6 +960,78 @@ class JsonSchemaParser(Parser):
                     self.model_resolver.add(path, name, class_name=True, loaded=True)
                     union_models.extend(d.reference for d in self.parse_one_of(name, all_of_item, path) if d.reference)
 
+    def _get_schema_by_ref(self, ref: str) -> dict[str, Any] | None:
+        """Resolve a schema reference and return its raw schema dict if available."""
+        try:
+            resolved_ref = self.model_resolver.resolve_ref(ref)
+            if "#" in resolved_ref:
+                ref_file, ref_path = resolved_ref.split("#", 1)
+            else:  # pragma: no cover
+                ref_file, ref_path = resolved_ref, ""
+            ref_body = self._get_ref_body(ref_file) if ref_file else self.raw_obj
+            if not ref_path:
+                return ref_body if isinstance(ref_body, dict) else None
+            schema = get_model_by_path(ref_body, ref_path.lstrip("/").split("/"))
+            return schema if isinstance(schema, dict) else None
+        except Exception:  # noqa: BLE001
+            return None
+
+    def _set_discriminator_literal(self, model: DataModel, property_name: str, discriminator_value: str) -> None:
+        """Set or create a discriminator field as a single-literal required field."""
+        field_name, alias = self.model_resolver.get_valid_field_name_and_alias(field_name=property_name)
+        for field in model.fields:
+            if field_name not in {field.original_name, field.name}:
+                continue
+            literals = field.data_type.literals
+            if len(literals) == 1 and literals[0] == discriminator_value:
+                field.required = True
+                return
+            for field_data_type in field.data_type.all_data_types:
+                if field_data_type.reference:  # pragma: no cover
+                    field_data_type.remove_reference()
+            field.data_type = self.data_type(literals=[discriminator_value])
+            field.data_type.parent = field
+            field.required = True
+            return
+        model.fields.append(
+            self.data_model_field_type(
+                name=field_name,
+                data_type=self.data_type(literals=[discriminator_value]),
+                required=True,
+                alias=alias,
+                original_name=property_name,
+            )
+        )
+
+    def _apply_inherited_discriminator_mapping(self, data_type: DataType, base_classes: list[Reference]) -> None:
+        """Apply OpenAPI discriminator mapping from allOf base classes to subclass models."""
+        if not data_type.reference or not isinstance(data_type.reference.source, DataModel):
+            return
+        model = data_type.reference.source
+        model_path = data_type.reference.path
+
+        for base_class in base_classes:
+            schema = self._get_schema_by_ref(base_class.path)
+            if not schema:
+                continue
+            discriminator = schema.get("discriminator")
+            if not isinstance(discriminator, dict):
+                continue
+            property_name = discriminator.get("propertyName")
+            mapping = discriminator.get("mapping")
+            if not property_name or not isinstance(mapping, dict):
+                continue
+
+            for discriminator_value, mapped_ref in mapping.items():
+                try:
+                    resolved_mapped_ref = self.model_resolver.resolve_ref(str(mapped_ref))
+                except Exception:  # noqa: BLE001
+                    resolved_mapped_ref = str(mapped_ref)
+
+                if resolved_mapped_ref == model_path or resolved_mapped_ref.split("#/")[-1] == model_path.split("#/")[-1]:
+                    self._set_discriminator_literal(model, property_name, discriminator_value)
+                    break
+
     def parse_all_of(
         self,
         name: str,
@@ -982,9 +1054,11 @@ class JsonSchemaParser(Parser):
         union_models: list[Reference] = []
         self._parse_all_of_item(name, obj, path, fields, base_classes, required, union_models)
         if not union_models:
-            return self._parse_object_common_part(
+            data_type = self._parse_object_common_part(
                 name, obj, path, ignore_duplicate_model, fields, base_classes, required
             )
+            self._apply_inherited_discriminator_mapping(data_type, base_classes)
+            return data_type
         reference = self.model_resolver.add(path, name, class_name=True, loaded=True)
         all_of_data_type = self._parse_object_common_part(
             name,
@@ -995,6 +1069,7 @@ class JsonSchemaParser(Parser):
             base_classes,
             required,
         )
+        self._apply_inherited_discriminator_mapping(all_of_data_type, base_classes)
         assert all_of_data_type.reference is not None
         data_type = self.data_type(
             data_types=[
