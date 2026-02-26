@@ -576,6 +576,9 @@ class Parser(ABC):
         self.default_field_extras: dict[str, Any] | None = default_field_extras
         self.formatters: list[Formatter] = formatters
         self.type_mappings: dict[tuple[str, str], str] = Parser._parse_type_mappings(type_mappings)
+        # Maps child schema ref path suffix -> (property_name, discriminator_value)
+        # Populated by JsonSchemaParser for allOf + discriminator patterns
+        self._allof_discriminator_mapping: dict[str, tuple[str, str]] = {}
 
     @staticmethod
     def _parse_type_mappings(type_mappings: list[str] | None) -> dict[tuple[str, str], str]:
@@ -840,6 +843,59 @@ class Parser(ABC):
                     ),
                 )
                 models.remove(model)
+
+    def __apply_allof_discriminator_type(  # noqa: PLR0912
+        self,
+        models: list[DataModel],
+        imports: Imports,
+    ) -> None:
+        """Apply discriminator literal types to models that inherit from a base with a discriminator mapping.
+
+        This handles the OpenAPI pattern where a base schema defines a discriminator with
+        a mapping, and child schemas use allOf to inherit from that base.
+        """
+        if not self._allof_discriminator_mapping:
+            return
+        for model in models:
+            # Check if this model's path matches any discriminator mapping target
+            model_path_suffix = model.path.split("#/", 1)[-1] if "#/" in model.path else model.path
+            match = self._allof_discriminator_mapping.get(model_path_suffix)
+            if not match:
+                continue
+            property_name, discriminator_value = match
+            field_name, alias = self.model_resolver.get_valid_field_name_and_alias(field_name=property_name)
+
+            # Check if the model already has the discriminator field
+            found = False
+            for field in model.fields:
+                if field_name not in {field.original_name, field.name}:
+                    continue
+                # Already a literal with the correct value - skip
+                if field.data_type.literals == [discriminator_value]:
+                    found = True
+                    break
+                # Replace the field's data type with a Literal
+                for field_data_type in field.data_type.all_data_types:
+                    if field_data_type.reference:
+                        field_data_type.remove_reference()
+                field.data_type = self.data_type(literals=[discriminator_value])
+                field.data_type.parent = field
+                field.required = True
+                imports.append(field.imports)
+                found = True
+                break
+            if not found:
+                # Add a new field with the discriminator literal
+                new_field = self.data_model_field_type(
+                    name=field_name,
+                    data_type=self.data_type(literals=[discriminator_value]),
+                    required=True,
+                    alias=alias,
+                )
+                model.fields.insert(0, new_field)
+            has_imported_literal = any(import_ == IMPORT_LITERAL for import_ in imports)
+            if has_imported_literal:
+                imports.append(IMPORT_LITERAL)
 
     def __apply_discriminator_type(  # noqa: PLR0912, PLR0915
         self,
@@ -1503,6 +1559,7 @@ class Parser(ABC):
             self.__set_default_enum_member(models)
             self.__sort_models(models, imports)
             self.__change_field_name(models)
+            self.__apply_allof_discriminator_type(models, imports)
             self.__apply_discriminator_type(models, imports)
             self.__set_one_literal_on_default(models)
 

@@ -618,6 +618,9 @@ class JsonSchemaParser(Parser):
         self.raw_obj: dict[str, YamlValue] = {}
         self._root_id: Optional[str] = None  # noqa: UP045
         self._root_id_base_path: Optional[str] = None  # noqa: UP045
+        # Maps child schema ref path suffix -> (property_name, discriminator_value)
+        # Used to apply discriminator literals to allOf-inherited child models
+        self._allof_discriminator_mapping: dict[str, tuple[str, str]] = {}
         self.reserved_refs: defaultdict[tuple[str, ...], set[str]] = defaultdict(set)
         self.field_keys: set[str] = {
             *DEFAULT_FIELD_KEYS,
@@ -1754,6 +1757,21 @@ class JsonSchemaParser(Parser):
         path: list[str],
     ) -> None:
         """Parse a JsonSchemaObject by dispatching to appropriate parse methods."""
+        # Store discriminator mapping from base schemas for allOf inheritance handling
+        if (
+            obj.discriminator
+            and isinstance(obj.discriminator, Discriminator)
+            and obj.discriminator.mapping
+            and not obj.oneOf
+            and not obj.anyOf
+        ):
+            for disc_value, child_ref in obj.discriminator.mapping.items():
+                # Normalize the ref path suffix (e.g. '#/components/schemas/Cat' -> 'components/schemas/Cat')
+                child_path_suffix = child_ref.lstrip("#/")
+                self._allof_discriminator_mapping[child_path_suffix] = (
+                    obj.discriminator.propertyName,
+                    disc_value,
+                )
         if obj.is_array:
             self.parse_array(name, obj, path)
         elif obj.allOf:
