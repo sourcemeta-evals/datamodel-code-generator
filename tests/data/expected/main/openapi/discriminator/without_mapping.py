@@ -18,12 +18,16 @@ class Type(Enum):
 
 class ObjectBase(BaseModel):
     name: str | None = Field(None, description='Name of the object')
-    type: Literal['ObjectBase'] = Field(..., description='Object type')
+    type: Literal['my_first_object', 'my_second_object', 'my_third_object'] = Field(
+        ..., description='Object type'
+    )
 
 
 class CreateObjectRequest(ObjectBase):
     name: str = Field(..., description='Name of the object')
-    type: Literal['CreateObjectRequest'] = Field(..., description='Object type')
+    type: Literal['my_first_object', 'my_second_object', 'my_third_object'] = Field(
+        ..., description='Object type'
+    )
 
 
 class UpdateObjectRequest(ObjectBase):
