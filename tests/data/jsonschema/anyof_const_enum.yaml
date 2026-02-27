@@ -1,0 +1,12 @@
+$schema: http://json-schema.org/draft-07/schema#
+title: Direction
+type: string
+anyOf:
+  - title: north
+    const: north
+  - title: south
+    const: south
+  - title: east
+    const: east
+  - title: west
+    const: west
