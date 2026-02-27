@@ -2420,9 +2420,19 @@ class JsonSchemaParser(Parser):
         elif obj.allOf:
             self.parse_all_of(name, obj, path)
         elif obj.oneOf or obj.anyOf:
-            data_type = self.parse_root_type(name, obj, path)
-            if isinstance(data_type, EmptyDataType) and obj.properties:
-                self.parse_object(name, obj, path)  # pragma: no cover
+            if obj.oneOf and all("const" in item.extras for item in obj.oneOf):
+                enum_values = [item.extras["const"] for item in obj.oneOf]
+                enum_obj = JsonSchemaObject(
+                    type=obj.type if isinstance(obj.type, str) else None,
+                    enum=enum_values,
+                    title=obj.title,
+                    description=obj.description,
+                )
+                self.parse_enum(name, enum_obj, path)
+            else:
+                data_type = self.parse_root_type(name, obj, path)
+                if isinstance(data_type, EmptyDataType) and obj.properties:
+                    self.parse_object(name, obj, path)  # pragma: no cover
         elif obj.properties:
             if obj.has_multiple_types and isinstance(obj.type, list):
                 self._parse_multiple_types_with_properties(name, obj, obj.type, path)
