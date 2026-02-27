@@ -21,7 +21,10 @@ from datamodel_code_generator.parser.jsonschema import (
     JsonSchemaObject,
     JsonSchemaParser,
     Types,
+    _resolve_recursive_ref_in_schema,
     get_model_by_path,
+    resolve_recursive_refs_in_jsonschema,
+    resolve_recursive_refs_in_openapi,
 )
 from datamodel_code_generator.reference import SPECIAL_PATH_MARKER, Reference
 from datamodel_code_generator.types import DataType
@@ -1310,3 +1313,167 @@ def test_resolve_type_import_from_defs_exception_handling() -> None:
 
     result = parser._resolve_type_import_from_defs("SomeType")
     assert result is None
+
+
+def test_resolve_recursive_ref_in_schema_basic() -> None:
+    """Test _resolve_recursive_ref_in_schema replaces $recursiveRef with $ref."""
+    schema: dict[str, Any] = {
+        "$recursiveAnchor": True,
+        "type": "object",
+        "properties": {
+            "children": {
+                "type": "array",
+                "items": {"$recursiveRef": "#"},
+            }
+        },
+    }
+    _resolve_recursive_ref_in_schema(schema, "#/components/schemas/Tree")
+    assert schema["properties"]["children"]["items"]["$ref"] == "#/components/schemas/Tree"
+    assert "$recursiveRef" not in schema["properties"]["children"]["items"]
+
+
+def test_resolve_recursive_ref_in_schema_dynamic_ref() -> None:
+    """Test _resolve_recursive_ref_in_schema replaces $dynamicRef with $ref."""
+    schema: dict[str, Any] = {
+        "$dynamicAnchor": True,
+        "type": "object",
+        "properties": {
+            "child": {"$dynamicRef": "#"},
+        },
+    }
+    _resolve_recursive_ref_in_schema(schema, "#/defs/Node")
+    assert schema["properties"]["child"]["$ref"] == "#/defs/Node"
+    assert "$dynamicRef" not in schema["properties"]["child"]
+
+
+def test_resolve_recursive_ref_in_schema_no_anchor() -> None:
+    """Test that $recursiveRef without anchor_ref is not replaced."""
+    schema: dict[str, Any] = {
+        "type": "object",
+        "properties": {
+            "child": {"$recursiveRef": "#"},
+        },
+    }
+    _resolve_recursive_ref_in_schema(schema, None)
+    assert "$recursiveRef" in schema["properties"]["child"]
+    assert "$ref" not in schema["properties"]["child"]
+
+
+def test_resolve_recursive_ref_in_schema_non_hash_ref_not_replaced() -> None:
+    """Test that $recursiveRef with value other than '#' is not replaced."""
+    schema: dict[str, Any] = {
+        "$recursiveAnchor": True,
+        "type": "object",
+        "properties": {
+            "child": {"$recursiveRef": "#/other/path"},
+        },
+    }
+    _resolve_recursive_ref_in_schema(schema, "#/components/schemas/Foo")
+    assert "$recursiveRef" in schema["properties"]["child"]
+    assert "$ref" not in schema["properties"]["child"]
+
+
+def test_resolve_recursive_refs_in_openapi() -> None:
+    """Test resolve_recursive_refs_in_openapi resolves refs in OpenAPI spec."""
+    spec: dict[str, Any] = {
+        "components": {
+            "schemas": {
+                "CompoundFilter": {
+                    "$recursiveAnchor": True,
+                    "type": "object",
+                    "properties": {
+                        "filters": {
+                            "type": "array",
+                            "items": {
+                                "oneOf": [
+                                    {"$ref": "#/components/schemas/SimpleFilter"},
+                                    {"$recursiveRef": "#"},
+                                ]
+                            },
+                        }
+                    },
+                },
+                "SimpleFilter": {
+                    "type": "object",
+                    "properties": {"key": {"type": "string"}},
+                },
+            }
+        }
+    }
+    resolve_recursive_refs_in_openapi(spec)
+    one_of = spec["components"]["schemas"]["CompoundFilter"]["properties"]["filters"]["items"]["oneOf"]
+    assert one_of[1]["$ref"] == "#/components/schemas/CompoundFilter"
+    assert "$recursiveRef" not in one_of[1]
+
+
+def test_resolve_recursive_refs_in_jsonschema_top_level() -> None:
+    """Test resolve_recursive_refs_in_jsonschema for top-level anchor."""
+    schema: dict[str, Any] = {
+        "$recursiveAnchor": True,
+        "type": "object",
+        "properties": {
+            "child": {"$recursiveRef": "#"},
+        },
+    }
+    resolve_recursive_refs_in_jsonschema(schema)
+    assert schema["properties"]["child"]["$ref"] == "#"
+    assert "$recursiveRef" not in schema["properties"]["child"]
+
+
+def test_resolve_recursive_refs_in_jsonschema_definitions() -> None:
+    """Test resolve_recursive_refs_in_jsonschema for definitions with anchor."""
+    schema: dict[str, Any] = {
+        "definitions": {
+            "Tree": {
+                "$recursiveAnchor": True,
+                "type": "object",
+                "properties": {
+                    "children": {
+                        "type": "array",
+                        "items": {"$recursiveRef": "#"},
+                    }
+                },
+            }
+        }
+    }
+    resolve_recursive_refs_in_jsonschema(schema)
+    items = schema["definitions"]["Tree"]["properties"]["children"]["items"]
+    assert items["$ref"] == "#/definitions/Tree"
+    assert "$recursiveRef" not in items
+
+
+def test_resolve_recursive_refs_in_jsonschema_defs() -> None:
+    """Test resolve_recursive_refs_in_jsonschema for $defs with anchor."""
+    schema: dict[str, Any] = {
+        "$defs": {
+            "Node": {
+                "$dynamicAnchor": True,
+                "type": "object",
+                "properties": {
+                    "next": {"$dynamicRef": "#"},
+                },
+            }
+        }
+    }
+    resolve_recursive_refs_in_jsonschema(schema)
+    assert schema["$defs"]["Node"]["properties"]["next"]["$ref"] == "#/$defs/Node"
+    assert "$dynamicRef" not in schema["$defs"]["Node"]["properties"]["next"]
+
+
+def test_resolve_recursive_ref_in_schema_non_dict() -> None:
+    """Test _resolve_recursive_ref_in_schema handles non-dict input."""
+    _resolve_recursive_ref_in_schema("not a dict", "#/ref")  # type: ignore[arg-type]
+
+
+def test_resolve_recursive_refs_in_openapi_no_schemas() -> None:
+    """Test resolve_recursive_refs_in_openapi handles spec without schemas."""
+    spec: dict[str, Any] = {"openapi": "3.1.0"}
+    resolve_recursive_refs_in_openapi(spec)
+
+
+def test_resolve_recursive_refs_in_openapi_non_dict_schema() -> None:
+    """Test resolve_recursive_refs_in_openapi skips non-dict schemas."""
+    spec: dict[str, Any] = {
+        "components": {"schemas": {"Broken": "not-a-dict"}}
+    }
+    resolve_recursive_refs_in_openapi(spec)
