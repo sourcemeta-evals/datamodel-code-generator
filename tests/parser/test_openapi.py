@@ -1037,3 +1037,74 @@ def test_openapi_parser_with_request_bodies_scope_body_ref() -> None:
     result = parser.parse()
     assert "CreatePet" in result or "BasePet" in result
     assert "name: Optional[str]" in result
+
+
+def test_openapi_parser_parse_recursive_ref(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Test parsing OpenAPI with $recursiveRef/$recursiveAnchor for self-referential schemas."""
+    monkeypatch.chdir(tmp_path)
+    parser = OpenAPIParser(
+        Path(DATA_PATH / "recursive_ref.yaml"),
+    )
+    assert_output(parser.parse(), EXPECTED_OPEN_API_PATH / "openapi_parser_parse_recursive_ref" / "output.py")
+
+
+def test_resolve_recursive_references() -> None:
+    """Test that _resolve_recursive_references converts $recursiveRef to $ref."""
+    parser = OpenAPIParser(
+        data_model_field_type=DataModelFieldBase,
+        source=Path(DATA_PATH / "recursive_ref.yaml"),
+    )
+    parser.raw_obj = {
+        "components": {
+            "schemas": {
+                "TreeNode": {
+                    "$recursiveAnchor": True,
+                    "type": "object",
+                    "properties": {
+                        "children": {
+                            "type": "array",
+                            "items": {"$recursiveRef": "#"},
+                        }
+                    },
+                },
+                "Leaf": {
+                    "type": "object",
+                    "properties": {"value": {"type": "string"}},
+                },
+            }
+        }
+    }
+    parser._resolve_recursive_references()
+    items = parser.raw_obj["components"]["schemas"]["TreeNode"]["properties"]["children"]["items"]
+    assert "$recursiveRef" not in items
+    assert items["$ref"] == "#/components/schemas/TreeNode"
+    leaf = parser.raw_obj["components"]["schemas"]["Leaf"]
+    assert "$ref" not in leaf
+
+
+def test_resolve_dynamic_references() -> None:
+    """Test that _resolve_recursive_references converts $dynamicRef to $ref."""
+    parser = OpenAPIParser(
+        data_model_field_type=DataModelFieldBase,
+        source=Path(DATA_PATH / "recursive_ref.yaml"),
+    )
+    parser.raw_obj = {
+        "components": {
+            "schemas": {
+                "TreeNode": {
+                    "$dynamicAnchor": "node",
+                    "type": "object",
+                    "properties": {
+                        "children": {
+                            "type": "array",
+                            "items": {"$dynamicRef": "#"},
+                        }
+                    },
+                },
+            }
+        }
+    }
+    parser._resolve_recursive_references()
+    items = parser.raw_obj["components"]["schemas"]["TreeNode"]["properties"]["children"]["items"]
+    assert "$dynamicRef" not in items
+    assert items["$ref"] == "#/components/schemas/TreeNode"
