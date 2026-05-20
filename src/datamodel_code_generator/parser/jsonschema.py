@@ -746,7 +746,13 @@ class JsonSchemaParser(Parser):
             if "const" not in item.extras:
                 return None
 
-            if item.ref or item.properties or item.oneOf or item.anyOf or item.allOf:
+            if (
+                item.ref is not None
+                or item.properties is not None
+                or item.oneOf
+                or item.anyOf
+                or item.allOf
+            ):
                 return None
 
             const_value = item.extras["const"]
