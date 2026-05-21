@@ -318,7 +318,7 @@ def test_main_graphql_extra_fields_allow(tmp_path: Path) -> None:
 
 @freeze_time("2019-07-26")
 def test_main_graphql_type_alias(tmp_path: Path) -> None:
-    """Test that TypeAliasType is generated for GraphQL schemas for Python 3.9-3.11."""
+    """Test that TypeAlias annotations are generated for GraphQL schemas for Python 3.9-3.11."""
     output_file: Path = tmp_path / "output.py"
     return_code: Exit = main([
         "--input",

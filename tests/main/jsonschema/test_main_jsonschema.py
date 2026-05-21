@@ -3324,7 +3324,7 @@ def test_main_jsonschema_forwarding_reference_collapse_root(tmp_path: Path) -> N
 
 @freeze_time("2019-07-26")
 def test_main_jsonschema_type_alias(tmp_path: Path) -> None:
-    """Test that TypeAliasType is generated for Python 3.9-3.11."""
+    """Test that TypeAlias annotations are generated for Python 3.9-3.11."""
     output_file: Path = tmp_path / "output.py"
     return_code: Exit = main([
         "--input",
@@ -3384,7 +3384,7 @@ def test_main_jsonschema_type_alias_constrained(tmp_path: Path) -> None:
 
 @freeze_time("2019-07-26")
 def test_main_jsonschema_type_alias_with_field_description(tmp_path: Path) -> None:
-    """Test that TypeAliasType is generated with field descriptions for Python 3.9-3.11."""
+    """Test that TypeAlias annotations are generated with field descriptions for Python 3.9-3.11."""
     output_file: Path = tmp_path / "output.py"
     return_code: Exit = main([
         "--input",

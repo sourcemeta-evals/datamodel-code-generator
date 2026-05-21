@@ -2590,7 +2590,7 @@ def test_main_openapi_same_name_objects(tmp_path: Path) -> None:
 
 @freeze_time("2019-07-26")
 def test_main_openapi_type_alias(tmp_path: Path) -> None:
-    """Test that TypeAliasType is generated for OpenAPI schemas for Python 3.9-3.11."""
+    """Test that TypeAlias annotations are generated for OpenAPI schemas for Python 3.9-3.11."""
     output_file: Path = tmp_path / "output.py"
     return_code: Exit = main([
         "--input",
