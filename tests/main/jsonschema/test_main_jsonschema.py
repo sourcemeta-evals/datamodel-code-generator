@@ -3361,6 +3361,28 @@ def test_main_jsonschema_type_alias_py312(tmp_path: Path) -> None:
 
 
 @freeze_time("2019-07-26")
+def test_main_jsonschema_type_alias_constrained(tmp_path: Path) -> None:
+    """Test that TypeAliasType output preserves constraint metadata for Pydantic v2 on Python 3.9-3.11."""
+    output_file: Path = tmp_path / "output.py"
+    return_code: Exit = main([
+        "--input",
+        str(JSON_SCHEMA_DATA_PATH / "type_alias_constrained.json"),
+        "--output",
+        str(output_file),
+        "--use-type-alias",
+        "--output-model-type",
+        "pydantic_v2.BaseModel",
+        "--target-python-version",
+        "3.9",
+    ])
+    assert return_code == Exit.OK
+    assert (
+        output_file.read_text(encoding="utf-8")
+        == (EXPECTED_JSON_SCHEMA_PATH / "type_alias_constrained.py").read_text()
+    )
+
+
+@freeze_time("2019-07-26")
 def test_main_jsonschema_type_alias_with_field_description(tmp_path: Path) -> None:
     """Test that TypeAliasType is generated with field descriptions for Python 3.9-3.11."""
     output_file: Path = tmp_path / "output.py"
