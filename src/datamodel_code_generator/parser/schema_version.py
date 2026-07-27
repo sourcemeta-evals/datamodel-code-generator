@@ -433,7 +433,6 @@ class OpenAPISchemaFeatures(JsonSchemaFeatures):
                     definitions_key="$defs",
                     exclusive_as_number=True,
                     read_only_write_only=True,
-                    recursive_ref=True,
                     dynamic_ref=True,
                     nullable_keyword=False,
                     discriminator_support=True,
