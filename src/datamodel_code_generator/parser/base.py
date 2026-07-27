@@ -1476,6 +1476,19 @@ class Parser(ABC, Generic[ParserConfigT, SchemaFeaturesT]):
                 )
                 discriminator["propertyName"] = field_name
                 mapping = discriminator.get("mapping", {})
+                # A discriminator with no union variants at all (empty `data_types`) has
+                # no target for the Enum->Literal conversion the discriminator loop
+                # performs. This shape can appear for a single-member `oneOf` stored as
+                # a direct reference or an `allOf` whose discriminator field is inherited
+                # from a base model (the `FineTuningIntegration`-style case from the
+                # reported bug). Leaving the discriminator in place while the referenced
+                # field stays a plain Enum causes Pydantic v2 to raise
+                # `discriminator-needs-literal` at import time, so drop the discriminator
+                # for this case.
+                if not field.data_type.data_types:
+                    field.extras.pop("discriminator", None)
+                    field.data_type.discriminator = None
+                    continue
                 # Any type cannot be a discriminated union variant (Pydantic v2 rejects it)
                 has_any_variant = any(
                     dt.type == ANY or (not dt.reference and not dt.data_types and not dt.literals and not dt.type)

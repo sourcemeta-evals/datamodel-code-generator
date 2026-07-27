@@ -8167,6 +8167,7 @@ def test_main_jsonschema_recursive_ref_pydantic_v2(output_file: Path) -> None:
         assert_func=assert_file_content,
         expected_file="recursive_ref_pydantic_v2.py",
         extra_args=["--output-model-type", "pydantic_v2.BaseModel"],
+        force_exec_validation=True,
     )
 
 
@@ -8191,6 +8192,7 @@ def test_main_jsonschema_dynamic_ref_pydantic_v2(output_file: Path) -> None:
         assert_func=assert_file_content,
         expected_file="dynamic_ref_pydantic_v2.py",
         extra_args=["--output-model-type", "pydantic_v2.BaseModel"],
+        force_exec_validation=True,
     )
 
 
@@ -8215,6 +8217,7 @@ def test_main_jsonschema_recursive_ref_no_anchor_pydantic_v2(output_file: Path) 
         assert_func=assert_file_content,
         expected_file="recursive_ref_no_anchor_pydantic_v2.py",
         extra_args=["--output-model-type", "pydantic_v2.BaseModel"],
+        force_exec_validation=True,
     )
 
 
@@ -8239,6 +8242,7 @@ def test_main_jsonschema_recursive_ref_in_defs_pydantic_v2(output_file: Path) ->
         assert_func=assert_file_content,
         expected_file="recursive_ref_in_defs_pydantic_v2.py",
         extra_args=["--output-model-type", "pydantic_v2.BaseModel"],
+        force_exec_validation=True,
     )
 
 
@@ -8263,4 +8267,5 @@ def test_main_jsonschema_dynamic_ref_in_defs_pydantic_v2(output_file: Path) -> N
         assert_func=assert_file_content,
         expected_file="dynamic_ref_in_defs_pydantic_v2.py",
         extra_args=["--output-model-type", "pydantic_v2.BaseModel"],
+        force_exec_validation=True,
     )
