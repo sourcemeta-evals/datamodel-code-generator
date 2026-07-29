@@ -168,6 +168,7 @@ def test_main_openapi_discriminator_enum_single_value(output_file: Path) -> None
         assert_func=assert_file_content,
         expected_file=EXPECTED_OPENAPI_PATH / "discriminator" / "enum_single_value.py",
         extra_args=["--target-python-version", "3.10", "--output-model-type", "pydantic_v2.BaseModel"],
+        force_exec_validation=True,
     )
 
 
@@ -4986,7 +4987,8 @@ def test_main_openapi_recursive_ref_discriminator_pydantic_v2(output_file: Path)
         input_file_type="openapi",
         assert_func=assert_file_content,
         expected_file="recursive_ref_discriminator_pydantic_v2.py",
-        extra_args=["--output-model-type", "pydantic_v2.BaseModel"],
+        extra_args=["--target-python-version", "3.10", "--output-model-type", "pydantic_v2.BaseModel"],
+        force_exec_validation=True,
     )
 
 
