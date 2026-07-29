@@ -8246,6 +8246,38 @@ def test_main_jsonschema_recursive_ref_in_defs_pydantic_v2(output_file: Path) ->
     )
 
 
+def test_main_jsonschema_recursive_ref_nested_anchor(output_file: Path) -> None:
+    """Test JSON Schema 2019-09 $recursiveRef with nested $recursiveAnchor scopes.
+
+    Both the root object and the TreeNode definition declare $recursiveAnchor
+    true. The $recursiveRef inside TreeNode.children must resolve to the
+    nearest enclosing anchor (TreeNode), not the root, so children is a list
+    of TreeNode. A resolver that always picks the first or outermost anchor
+    generates the wrong self-reference.
+    """
+    run_main_and_assert(
+        input_path=JSON_SCHEMA_DATA_PATH / "recursive_ref_nested_anchor.json",
+        output_path=output_file,
+        input_file_type="jsonschema",
+        assert_func=assert_file_content,
+        expected_file="recursive_ref_nested_anchor.py",
+    )
+
+
+@PYDANTIC_V2_SKIP
+def test_main_jsonschema_recursive_ref_nested_anchor_pydantic_v2(output_file: Path) -> None:
+    """Test JSON Schema 2019-09 nested $recursiveAnchor precedence for Pydantic v2."""
+    run_main_and_assert(
+        input_path=JSON_SCHEMA_DATA_PATH / "recursive_ref_nested_anchor.json",
+        output_path=output_file,
+        input_file_type="jsonschema",
+        assert_func=assert_file_content,
+        expected_file="recursive_ref_nested_anchor_pydantic_v2.py",
+        extra_args=["--target-python-version", "3.10", "--output-model-type", "pydantic_v2.BaseModel"],
+        force_exec_validation=True,
+    )
+
+
 def test_main_jsonschema_dynamic_ref_in_defs(output_file: Path) -> None:
     """Test JSON Schema 2020-12 $dynamicRef with anchor in $defs."""
     run_main_and_assert(
