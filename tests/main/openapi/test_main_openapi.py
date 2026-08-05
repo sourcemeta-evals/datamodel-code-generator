@@ -176,6 +176,29 @@ def test_main_openapi_discriminator_enum_single_value(output_file: Path) -> None
     black.__version__.split(".")[0] == "19",
     reason="Installed black doesn't support the old style",
 )
+def test_main_openapi_discriminator_any_variant(output_file: Path) -> None:
+    """Discriminated oneOf whose variants include an inline empty schema.
+
+    The empty variant resolves to ``Any``, which Pydantic v2 rejects as a
+    discriminated-union member with ``discriminator-needs-literal`` at import
+    time. The parser must detect this shape and drop the discriminator so the
+    generated module still imports cleanly.
+    """
+    run_main_and_assert(
+        input_path=OPEN_API_DATA_PATH / "discriminator_any_variant.yaml",
+        output_path=output_file,
+        input_file_type="openapi",
+        assert_func=assert_file_content,
+        expected_file=EXPECTED_OPENAPI_PATH / "discriminator" / "any_variant.py",
+        extra_args=["--target-python-version", "3.10", "--output-model-type", "pydantic_v2.BaseModel"],
+        force_exec_validation=True,
+    )
+
+
+@pytest.mark.skipif(
+    black.__version__.split(".")[0] == "19",
+    reason="Installed black doesn't support the old style",
+)
 def test_main_openapi_discriminator_enum_single_value_use_enum(output_file: Path) -> None:
     """Single-value enum with allOf + --use-enum-values-in-discriminator."""
     run_main_and_assert(

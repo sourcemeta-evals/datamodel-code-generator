@@ -1,0 +1,30 @@
+openapi: "3.0.0"
+components:
+  schemas:
+    Result:
+      oneOf:
+        - $ref: '#/components/schemas/Success'
+        - $ref: '#/components/schemas/Failure'
+        - {}
+      discriminator:
+        propertyName: kind
+    Success:
+      type: object
+      properties:
+        kind:
+          type: string
+          enum: [success]
+        value:
+          type: string
+      required:
+        - kind
+    Failure:
+      type: object
+      properties:
+        kind:
+          type: string
+          enum: [failure]
+        message:
+          type: string
+      required:
+        - kind
