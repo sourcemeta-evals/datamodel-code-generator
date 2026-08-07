@@ -1,0 +1,29 @@
+openapi: "3.0.0"
+components:
+  schemas:
+    Result:
+      oneOf:
+        - $ref: '#/components/schemas/FirstVariant'
+        - $ref: '#/components/schemas/SecondVariant'
+      discriminator:
+        propertyName: kind
+    FirstVariant:
+      type: object
+      properties:
+        kind:
+          type: string
+          enum: [shared]
+        first_field:
+          type: string
+      required:
+        - kind
+    SecondVariant:
+      type: object
+      properties:
+        kind:
+          type: string
+          enum: [shared]
+        second_field:
+          type: string
+      required:
+        - kind
