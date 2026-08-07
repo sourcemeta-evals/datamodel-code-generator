@@ -98,6 +98,11 @@ def unescape_json_pointer_segment(segment: str) -> str:
     return unquote(segment.replace("~1", "/").replace("~0", "~"))
 
 
+def escape_json_pointer_segment(segment: str) -> str:
+    """Escape JSON pointer segment per RFC 6901 (~ -> ~0, / -> ~1)."""
+    return segment.replace("~", "~0").replace("/", "~1")
+
+
 def get_model_by_path(
     schema: dict[str, YamlValue] | list[YamlValue], keys: list[str] | list[int]
 ) -> dict[str, YamlValue]:
@@ -1580,7 +1585,7 @@ class JsonSchemaParser(Parser["JSONSchemaParserConfig", "JsonSchemaFeatures"]):
             first = suffix_parts[0]
             if first.startswith("#"):
                 suffix_parts = [first[1:].lstrip("/"), *suffix_parts[1:]]
-            ref_path = "#/" + "/".join(suffix_parts)
+            ref_path = "#/" + "/".join(escape_json_pointer_segment(part) for part in suffix_parts)
         else:
             ref_path = "#"
         if obj.recursiveAnchor:
@@ -1609,7 +1614,7 @@ class JsonSchemaParser(Parser["JSONSchemaParserConfig", "JsonSchemaFeatures"]):
             first = suffix_parts[0]
             if first.startswith("#"):
                 suffix_parts = [first[1:].lstrip("/"), *suffix_parts[1:]]
-            current_ref = "#/" + "/".join(suffix_parts)
+            current_ref = "#/" + "/".join(escape_json_pointer_segment(part) for part in suffix_parts)
         else:
             current_ref = "#"  # pragma: no cover
         # Find the best matching anchor: path prefix with longest match
@@ -4176,12 +4181,12 @@ class JsonSchemaParser(Parser["JSONSchemaParserConfig", "JsonSchemaFeatures"]):
                     # Build $recursiveAnchor index for definitions
                     if obj.recursiveAnchor:
                         root_key = tuple(path_parts)
-                        ref_path = "#/" + schema_path.lstrip("#/") + "/" + key
+                        ref_path = "#/" + schema_path.lstrip("#/") + "/" + escape_json_pointer_segment(key)
                         self._recursive_anchor_index.setdefault(root_key, []).append(ref_path)
                     # Build $dynamicAnchor index for definitions
                     if obj.dynamicAnchor:
                         root_key = tuple(path_parts)
-                        ref_path = "#/" + schema_path.lstrip("#/") + "/" + key
+                        ref_path = "#/" + schema_path.lstrip("#/") + "/" + escape_json_pointer_segment(key)
                         self._dynamic_anchor_index.setdefault(root_key, {}).setdefault(obj.dynamicAnchor, ref_path)
 
                 if object_paths:

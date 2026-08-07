@@ -19,7 +19,7 @@ class ComparisonFilter(BaseModel):
     class Config:
         extra = Extra.forbid
 
-    type: Literal['ComparisonFilter']
+    type: Literal['eq', 'ne']
     key: str
     value: str
 
@@ -37,7 +37,7 @@ class CompoundFilter(BaseModel):
     class Config:
         extra = Extra.forbid
 
-    type: Literal['CompoundFilter']
+    type: Literal['and', 'or']
     filters: list[Filters]
 
 
