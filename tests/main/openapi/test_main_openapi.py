@@ -223,6 +223,56 @@ def test_main_openapi_discriminator_duplicate_values(output_file: Path) -> None:
     black.__version__.split(".")[0] == "19",
     reason="Installed black doesn't support the old style",
 )
+def test_main_openapi_discriminator_any_variant_referenced(output_file: Path) -> None:
+    """Discriminated oneOf whose variant references a named empty component.
+
+    The named empty component generates a ``RootModel[Any]`` wrapper rather
+    than exposing ``Any`` directly. Shallow guards that look only at the
+    immediate union members miss this case, but Pydantic v2 still rejects
+    the discriminator at import time because the wrapper does not expose a
+    literal discriminator field. The parser must recursively unwrap the
+    wrapper and drop the discriminator so the generated module still imports
+    cleanly.
+    """
+    run_main_and_assert(
+        input_path=OPEN_API_DATA_PATH / "discriminator_any_variant_referenced.yaml",
+        output_path=output_file,
+        input_file_type="openapi",
+        assert_func=assert_file_content,
+        expected_file=EXPECTED_OPENAPI_PATH / "discriminator" / "any_variant_referenced.py",
+        extra_args=["--target-python-version", "3.10", "--output-model-type", "pydantic_v2.BaseModel"],
+        force_exec_validation=True,
+    )
+
+
+@pytest.mark.skipif(
+    black.__version__.split(".")[0] == "19",
+    reason="Installed black doesn't support the old style",
+)
+def test_main_openapi_discriminator_duplicate_values(output_file: Path) -> None:
+    """Discriminated oneOf whose variants share the same discriminator literal.
+
+    Two concrete variants resolving to the same discriminator value make the
+    mapping ambiguous, and Pydantic v2 rejects the module at import with
+    ``Value ... mapped to multiple choices``. The parser must detect this
+    shape and drop the discriminator so the generated module still imports
+    cleanly with both variants preserved in a plain union.
+    """
+    run_main_and_assert(
+        input_path=OPEN_API_DATA_PATH / "discriminator_duplicate_values.yaml",
+        output_path=output_file,
+        input_file_type="openapi",
+        assert_func=assert_file_content,
+        expected_file=EXPECTED_OPENAPI_PATH / "discriminator" / "duplicate_values.py",
+        extra_args=["--target-python-version", "3.10", "--output-model-type", "pydantic_v2.BaseModel"],
+        force_exec_validation=True,
+    )
+
+
+@pytest.mark.skipif(
+    black.__version__.split(".")[0] == "19",
+    reason="Installed black doesn't support the old style",
+)
 def test_main_openapi_discriminator_enum_single_value_use_enum(output_file: Path) -> None:
     """Single-value enum with allOf + --use-enum-values-in-discriminator."""
     run_main_and_assert(
