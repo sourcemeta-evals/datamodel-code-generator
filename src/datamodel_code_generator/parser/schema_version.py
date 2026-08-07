@@ -233,8 +233,8 @@ class JsonSchemaFeatures:
         metadata=FeatureMetadata(
             introduced="2019-09",
             doc_name="$recursiveRef/$recursiveAnchor",
-            description="Recursive reference resolution via anchors",
-            status="supported",
+            description="Static local-anchor resolution, not full runtime dynamic scope",
+            status="partial",
         ),
     )
     dynamic_ref: bool = field(
@@ -242,8 +242,8 @@ class JsonSchemaFeatures:
         metadata=FeatureMetadata(
             introduced="2020-12",
             doc_name="$dynamicRef/$dynamicAnchor",
-            description="Dynamic reference resolution across schemas",
-            status="supported",
+            description="Static local-anchor resolution, not full runtime dynamic scope across arbitrary resources",
+            status="partial",
         ),
     )
 
