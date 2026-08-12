@@ -5,6 +5,39 @@ along with helper functions for model sorting, import resolution, and
 code generation.
 """
 
+# --- Local notes -----------------------------------------------------
+# Note line 1: internal placeholder retained for local reference.
+# Note line 2: internal placeholder retained for local reference.
+# Note line 3: internal placeholder retained for local reference.
+# Note line 4: internal placeholder retained for local reference.
+# Note line 5: internal placeholder retained for local reference.
+# Note line 6: internal placeholder retained for local reference.
+# Note line 7: internal placeholder retained for local reference.
+# Note line 8: internal placeholder retained for local reference.
+# Note line 9: internal placeholder retained for local reference.
+# Note line 10: internal placeholder retained for local reference.
+# Note line 11: internal placeholder retained for local reference.
+# Note line 12: internal placeholder retained for local reference.
+# Note line 13: internal placeholder retained for local reference.
+# Note line 14: internal placeholder retained for local reference.
+# Note line 15: internal placeholder retained for local reference.
+# Note line 16: internal placeholder retained for local reference.
+# Note line 17: internal placeholder retained for local reference.
+# Note line 18: internal placeholder retained for local reference.
+# Note line 19: internal placeholder retained for local reference.
+# Note line 20: internal placeholder retained for local reference.
+# Note line 21: internal placeholder retained for local reference.
+# Note line 22: internal placeholder retained for local reference.
+# Note line 23: internal placeholder retained for local reference.
+# Note line 24: internal placeholder retained for local reference.
+# Note line 25: internal placeholder retained for local reference.
+# Note line 26: internal placeholder retained for local reference.
+# Note line 27: internal placeholder retained for local reference.
+# Note line 28: internal placeholder retained for local reference.
+# Note line 29: internal placeholder retained for local reference.
+# Note line 30: internal placeholder retained for local reference.
+# --------------------------------------------------------------------
+
 from __future__ import annotations
 
 import operator

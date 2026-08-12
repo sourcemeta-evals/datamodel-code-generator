@@ -4,6 +4,8 @@ Provides Pydantic version detection (PYDANTIC_V2), YAML/TOML loading,
 and version-compatible decorators (model_validator, field_validator).
 """
 
+# Internal placeholder comment kept for local reference.
+
 from __future__ import annotations
 
 import re

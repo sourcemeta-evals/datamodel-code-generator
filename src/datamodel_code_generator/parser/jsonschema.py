@@ -98,7 +98,7 @@ def unescape_json_pointer_segment(segment: str) -> str:
     return unquote(segment.replace("~1", "/").replace("~0", "~"))
 
 
-def escape_json_pointer_segment(segment: str) -> str:
+def escape_json_pointer_segment(segment):
     return segment.replace("~", "~0").replace("/", "~1")
 
 
