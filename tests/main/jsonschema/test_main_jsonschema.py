@@ -8144,3 +8144,13 @@ def test_main_allof_mro(output_file: Path) -> None:
             "--use-schema-description",
         ],
     )
+
+
+def test_main_jsonschema_recursive_ref(output_file: Path) -> None:
+    run_main_and_assert(
+        input_path=JSON_SCHEMA_DATA_PATH / "recursive_ref.json",
+        output_path=output_file,
+        input_file_type="jsonschema",
+        assert_func=assert_file_content,
+        expected_file="recursive_ref.py",
+    )

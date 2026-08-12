@@ -82,7 +82,7 @@ from datamodel_code_generator.parser import DefaultPutDict, LiteralType
 from datamodel_code_generator.parser._graph import stable_toposort
 from datamodel_code_generator.parser._scc import find_circular_sccs, strongly_connected_components
 from datamodel_code_generator.reference import ModelResolver, ModelType, Reference
-from datamodel_code_generator.types import DataType, DataTypeManager
+from datamodel_code_generator.types import ANY, DataType, DataTypeManager
 from datamodel_code_generator.util import camel_to_snake, model_copy, model_dump
 
 if TYPE_CHECKING:
@@ -1476,6 +1476,105 @@ class Parser(ABC, Generic[ParserConfigT, SchemaFeaturesT]):
                 )
                 discriminator["propertyName"] = field_name
                 mapping = discriminator.get("mapping", {})
+                # A discriminator with no union variants at all (empty `data_types`) has
+                # no target for the Enum->Literal conversion the discriminator loop
+                # performs. This shape can appear for a single-member `oneOf` stored as
+                # a direct reference or an `allOf` whose discriminator field is inherited
+                # from a base model (the `FineTuningIntegration`-style case from the
+                # reported bug). Leaving the discriminator in place while the referenced
+                # field stays a plain Enum causes Pydantic v2 to raise
+                # `discriminator-needs-literal` at import time, so drop the discriminator
+                # for this case.
+                if not field.data_type.data_types:
+                    field.extras.pop("discriminator", None)
+                    field.data_type.discriminator = None
+                    continue
+                # Any type cannot be a discriminated union variant (Pydantic v2 rejects it).
+                # A variant that references a RootModel-like wrapper around Any (e.g. a
+                # named component whose schema is `{}` and generates `class Unknown(RootModel[Any])`)
+                # exposes no discriminator field either and causes the same import-time
+                # rejection, so recursively unwrap referenced root-model wrappers when
+                # checking for Any variants.
+                def _dt_is_any_like(dt: DataType, visited: set[int] | None = None) -> bool:
+                    if visited is None:
+                        visited = set()
+                    if dt.type == ANY:
+                        return True
+                    if not dt.reference and not dt.data_types and not dt.literals and not dt.type:
+                        return True
+                    if not dt.reference or not dt.reference.source:
+                        return False
+                    source = dt.reference.source
+                    if not isinstance(source, DataModel):
+                        return False
+                    if id(source) in visited:
+                        return False
+                    visited.add(id(source))
+                    # Root-model wrapper: a single field carries the wrapped type
+                    # regardless of the synthesized field name.
+                    if len(source.fields) == 1:
+                        return _dt_is_any_like(source.fields[0].data_type, visited)
+                    return False
+
+                has_any_variant = any(
+                    _dt_is_any_like(dt) for dt in field.data_type.data_types
+                )
+                if has_any_variant:
+                    field.extras.pop("discriminator", None)
+                    field.data_type.discriminator = None
+                    continue
+                # Pre-check discriminator variants for overlapping resolved values.
+                # Two variants that resolve to the same discriminator literal make the
+                # union ambiguous, so Pydantic v2 rejects the module with
+                # "Value ... mapped to multiple choices". Drop the discriminator so
+                # the union stays as a plain union rather than an unimportable one.
+                seen_values: set[str] = set()
+                has_duplicate_values = False
+                for _pre_dt in field.data_type.data_types:
+                    if not _pre_dt.reference:
+                        continue
+                    _pre_model = _pre_dt.reference.source
+                    if (
+                        not isinstance(_pre_model, DataModel)
+                        or not _pre_model.SUPPORTS_DISCRIMINATOR
+                    ):
+                        continue
+                    _pre_names: list[str] = []
+                    for _pre_field in _pre_model.fields:
+                        if field_name not in {_pre_field.original_name, _pre_field.name}:
+                            continue
+                        if _pre_field.extras.get("const"):
+                            _pre_names = [_pre_field.extras["const"]]
+                            break
+                    if not _pre_names and not mapping:
+                        for _pre_field in _pre_model.fields:
+                            if field_name not in {_pre_field.original_name, _pre_field.name}:
+                                continue
+                            _pre_literals = _pre_field.data_type.literals
+                            if _pre_literals:
+                                _pre_names = [str(v) for v in _pre_literals]
+                                break
+                            _pre_enum = _pre_field.data_type.find_source(Enum)
+                            if _pre_enum and _pre_enum.fields:
+                                for _enum_field in _pre_enum.fields:
+                                    _raw = _enum_field.default
+                                    if isinstance(_raw, str):
+                                        _pre_names.append(_raw.strip("'\""))
+                                    else:  # pragma: no cover
+                                        _pre_names.append(str(_raw))
+                                break
+                    if not _pre_names:
+                        # class-name fallback is always unique per variant
+                        continue
+                    _pre_set = set(_pre_names)
+                    if _pre_set & seen_values:
+                        has_duplicate_values = True
+                        break
+                    seen_values.update(_pre_set)
+                if has_duplicate_values:
+                    field.extras.pop("discriminator", None)
+                    field.data_type.discriminator = None
+                    continue
                 for data_type in field.data_type.data_types:
                     if not data_type.reference:  # pragma: no cover
                         continue
@@ -1529,18 +1628,20 @@ class Parser(ABC, Generic[ParserConfigT, SchemaFeaturesT]):
                                     continue
 
                                 literals = discriminator_field.data_type.literals
-                                if literals and len(literals) == 1:  # pragma: no cover
+                                if literals:
                                     type_names = [str(v) for v in literals]
                                     break
 
                                 enum_source = discriminator_field.data_type.find_source(Enum)
-                                if enum_source and len(enum_source.fields) == 1:
-                                    first_field = enum_source.fields[0]
-                                    raw_default = first_field.default
-                                    if isinstance(raw_default, str):
-                                        type_names = [raw_default.strip("'\"")]
-                                    else:  # pragma: no cover
-                                        type_names = [str(raw_default)]
+                                if enum_source and enum_source.fields:
+                                    values: list[str] = []
+                                    for enum_field in enum_source.fields:
+                                        raw_default = enum_field.default
+                                        if isinstance(raw_default, str):
+                                            values.append(raw_default.strip("'\""))
+                                        else:  # pragma: no cover
+                                            values.append(str(raw_default))
+                                    type_names = values
                                     break
 
                             if not type_names:
@@ -1995,11 +2096,19 @@ class Parser(ABC, Generic[ParserConfigT, SchemaFeaturesT]):
                             )
                         discriminator = root_type_field.extras.get("discriminator")
                         if discriminator and isinstance(root_type_field, pydantic_model.DataModelField):
-                            prop_name = (
-                                discriminator.get("propertyName") if isinstance(discriminator, dict) else discriminator
+                            has_any_variant = any(
+                                dt.type == ANY
+                                or (not dt.reference and not dt.data_types and not dt.literals and not dt.type)
+                                for dt in copied_data_type.data_types
                             )
-                            if self._is_pydantic_v2_model():
-                                copied_data_type.discriminator = prop_name
+                            if not has_any_variant:  # pragma: no branch
+                                prop_name = (
+                                    discriminator.get("propertyName")
+                                    if isinstance(discriminator, dict)
+                                    else discriminator
+                                )
+                                if self._is_pydantic_v2_model():
+                                    copied_data_type.discriminator = prop_name
                         assert isinstance(data_type.parent, DataType)
                         data_type.parent.data_types.remove(data_type)
                         data_type.parent.data_types.append(copied_data_type)
