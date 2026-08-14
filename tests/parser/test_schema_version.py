@@ -189,9 +189,7 @@ def test_jsonschema_features_2020_12() -> None:
             id_field="$id",
             definitions_key="$defs",
             exclusive_as_number=True,
-            read_only_write_only=True,
-            recursive_ref=True,
-            dynamic_ref=True,
+            read_only_write_only=True, dynamic_ref=True,
         )
     )
 
@@ -207,9 +205,7 @@ def test_jsonschema_features_auto() -> None:
             id_field="$id",
             definitions_key="$defs",
             exclusive_as_number=True,
-            read_only_write_only=True,
-            recursive_ref=True,
-            dynamic_ref=True,
+            read_only_write_only=True, dynamic_ref=True,
         )
     )
 
@@ -254,9 +250,7 @@ def test_openapi_features_v31() -> None:
             webhooks=True,
             ref_sibling_keywords=True,
             exclusive_as_number=True,
-            read_only_write_only=True,
-            recursive_ref=True,
-            dynamic_ref=True,
+            read_only_write_only=True, dynamic_ref=True,
             nullable_keyword=False,
             discriminator_support=True,
         )
@@ -276,9 +270,7 @@ def test_openapi_features_auto() -> None:
             webhooks=True,
             ref_sibling_keywords=True,
             exclusive_as_number=True,
-            read_only_write_only=True,
-            recursive_ref=True,
-            dynamic_ref=True,
+            read_only_write_only=True, dynamic_ref=True,
             nullable_keyword=False,
             discriminator_support=True,
         )

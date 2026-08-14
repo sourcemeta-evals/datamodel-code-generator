@@ -8264,3 +8264,34 @@ def test_main_jsonschema_dynamic_ref_in_defs_pydantic_v2(output_file: Path) -> N
         expected_file="dynamic_ref_in_defs_pydantic_v2.py",
         extra_args=["--output-model-type", "pydantic_v2.BaseModel"],
     )
+
+
+def test_main_jsonschema_dynamic_ref_pointer_fallback(output_file: Path) -> None:
+    """Test JSON Schema 2020-12 $dynamicRef pointer fallback.
+
+    When $dynamicRef carries a pointer-form value that does not match a
+    $dynamicAnchor (e.g. ``#/$defs/Node``), it must fall through to the
+    ordinary $ref resolution pipeline and produce a concrete referenced
+    model rather than being deleted or degraded to Any.
+    """
+    run_main_and_assert(
+        input_path=JSON_SCHEMA_DATA_PATH / "dynamic_ref_pointer_fallback.json",
+        output_path=output_file,
+        input_file_type="jsonschema",
+        assert_func=assert_file_content,
+        expected_file="dynamic_ref_pointer_fallback.py",
+    )
+
+
+@PYDANTIC_V2_SKIP
+def test_main_jsonschema_dynamic_ref_pointer_fallback_pydantic_v2(output_file: Path) -> None:
+    """Test $dynamicRef pointer fallback with Pydantic v2."""
+    run_main_and_assert(
+        input_path=JSON_SCHEMA_DATA_PATH / "dynamic_ref_pointer_fallback.json",
+        output_path=output_file,
+        input_file_type="jsonschema",
+        assert_func=assert_file_content,
+        expected_file="dynamic_ref_pointer_fallback_pydantic_v2.py",
+        extra_args=["--output-model-type", "pydantic_v2.BaseModel"],
+        force_exec_validation=True,
+    )
