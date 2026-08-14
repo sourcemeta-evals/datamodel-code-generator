@@ -179,10 +179,12 @@ def test_main_openapi_discriminator_enum_single_value(output_file: Path) -> None
 def test_main_openapi_discriminator_any_variant(output_file: Path) -> None:
     """Discriminated oneOf whose variants include an inline empty schema.
 
-    The empty variant resolves to ``Any``, which Pydantic v2 rejects as a
-    discriminated-union member with ``discriminator-needs-literal`` at import
-    time. The parser must detect this shape and drop the discriminator so the
-    generated module still imports cleanly.
+    An OpenAPI 3.1 document where one concrete variant recurses through a
+    ``$dynamicAnchor``/``$dynamicRef`` pair that must resolve to the concrete
+    model. The empty variant resolves to ``Any``, which Pydantic v2 rejects as
+    a discriminated-union member with ``discriminator-needs-literal`` at
+    import time. The parser must detect this shape and drop the discriminator
+    so the generated module still imports cleanly.
     """
     run_main_and_assert(
         input_path=OPEN_API_DATA_PATH / "discriminator_any_variant.yaml",
@@ -202,9 +204,11 @@ def test_main_openapi_discriminator_any_variant(output_file: Path) -> None:
 def test_main_openapi_discriminator_duplicate_values(output_file: Path) -> None:
     """Discriminated oneOf whose variants share the same discriminator literal.
 
-    Two concrete variants resolving to the same discriminator value make the
-    mapping ambiguous, and Pydantic v2 rejects the module at import with
-    ``Value ... mapped to multiple choices``. The parser must detect this
+    An OpenAPI 3.1 document where one variant recurses through a
+    ``$dynamicAnchor``/``$dynamicRef`` pair that must resolve to the concrete
+    model. Two concrete variants resolving to the same discriminator value
+    make the mapping ambiguous, and Pydantic v2 rejects the module at import
+    with ``Value ... mapped to multiple choices``. The parser must detect this
     shape and drop the discriminator so the generated module still imports
     cleanly with both variants preserved in a plain union.
     """

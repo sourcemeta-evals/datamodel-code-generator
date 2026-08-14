@@ -17,6 +17,7 @@ class Kind(Enum):
 class Success(BaseModel):
     kind: Kind
     value: str | None = None
+    chained: list[Success] | None = None
 
 
 class Kind1(Enum):
@@ -30,3 +31,6 @@ class Failure(BaseModel):
 
 class Result(RootModel[Success | Failure | Any]):
     root: Success | Failure | Any
+
+
+Success.model_rebuild()

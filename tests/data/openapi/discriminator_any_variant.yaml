@@ -1,21 +1,31 @@
-openapi: "3.0.0"
+openapi: "3.1.0"
+info:
+  title: Test
+  version: "1.0"
+paths: {}
 components:
   schemas:
     Result:
       oneOf:
-        - $ref: '#/components/schemas/Success'
-        - $ref: '#/components/schemas/Failure'
+        - $ref: "#/components/schemas/Success"
+        - $ref: "#/components/schemas/Failure"
         - {}
       discriminator:
         propertyName: kind
     Success:
+      $dynamicAnchor: Success
       type: object
       properties:
         kind:
           type: string
-          enum: [success]
+          enum:
+            - success
         value:
           type: string
+        chained:
+          type: array
+          items:
+            $dynamicRef: "#Success"
       required:
         - kind
     Failure:
@@ -23,7 +33,8 @@ components:
       properties:
         kind:
           type: string
-          enum: [failure]
+          enum:
+            - failure
         message:
           type: string
       required:

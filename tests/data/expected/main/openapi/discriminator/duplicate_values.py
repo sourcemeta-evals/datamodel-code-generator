@@ -16,6 +16,7 @@ class Kind(Enum):
 class FirstVariant(BaseModel):
     kind: Kind
     first_field: str | None = None
+    nested: list[FirstVariant] | None = None
 
 
 class SecondVariant(BaseModel):
@@ -25,3 +26,6 @@ class SecondVariant(BaseModel):
 
 class Result(RootModel[FirstVariant | SecondVariant]):
     root: FirstVariant | SecondVariant
+
+
+FirstVariant.model_rebuild()
