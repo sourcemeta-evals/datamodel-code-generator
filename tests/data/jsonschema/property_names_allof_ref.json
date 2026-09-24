@@ -12,12 +12,17 @@
     }
   },
   "title": "Model",
-  "allOf": [
-    {
-      "$ref": "#/definitions/DictWithPropertyNames"
-    },
-    {
-      "minProperties": 1
+  "type": "object",
+  "properties": {
+    "labels": {
+      "allOf": [
+        {
+          "$ref": "#/definitions/DictWithPropertyNames"
+        }
+      ]
     }
+  },
+  "required": [
+    "labels"
   ]
 }

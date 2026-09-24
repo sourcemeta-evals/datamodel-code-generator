@@ -12,4 +12,4 @@ class DictWithPropertyNames(RootModel[dict[constr(pattern=r'^[a-z]+$'), str]]):
 
 
 class Model(BaseModel):
-    pass
+    labels: DictWithPropertyNames
