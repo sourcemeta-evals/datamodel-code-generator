@@ -1,4 +1,4 @@
-{{ class_name }}: TypeAlias = {{ py_type }}
+{% if alias_syntax == 'statement' %}type {{ class_name }} = {{ py_type }}{% elif alias_syntax == 'alias_type' %}{{ class_name }} = TypeAliasType("{{ class_name }}", {{ py_type }}){% else %}{{ class_name }}: TypeAlias = {{ py_type }}{% endif %}
 {%- if description %}
 """
 {{ description }}

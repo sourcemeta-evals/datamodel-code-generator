@@ -237,7 +237,6 @@ def generate(  # noqa: PLR0912, PLR0913, PLR0914, PLR0915
     class_name: str | None = None,
     use_standard_collections: bool = False,
     use_schema_description: bool = False,
-    use_type_alias: bool = False,
     use_field_description: bool = False,
     use_default_kwarg: bool = False,
     reuse_model: bool = False,
@@ -271,6 +270,7 @@ def generate(  # noqa: PLR0912, PLR0913, PLR0914, PLR0915
     use_double_quotes: bool = False,
     use_union_operator: bool = False,
     collapse_root_models: bool = False,
+    use_type_alias: bool = False,
     special_field_name_prefix: str | None = None,
     remove_special_field_name_prefix: bool = False,
     capitalise_enum_members: bool = False,
@@ -415,7 +415,25 @@ def generate(  # noqa: PLR0912, PLR0913, PLR0914, PLR0915
 
     from datamodel_code_generator.model import get_data_model_types  # noqa: PLC0415
 
-    data_model_types = get_data_model_types(output_model_type, target_python_version, use_type_alias)
+    data_model_types = get_data_model_types(output_model_type, target_python_version, use_type_alias=use_type_alias)
+
+    if input_file_type == InputFileType.GraphQL:
+        from datamodel_code_generator.model import scalar, union  # noqa: PLC0415
+
+        if output_model_type == DataModelType.PydanticBaseModel:
+            if target_python_version == PythonVersion.PY_39:
+                kwargs["data_model_scalar_type"] = scalar.DataTypeScalarBackport
+                kwargs["data_model_union_type"] = union.DataTypeUnionBackport
+            else:
+                kwargs["data_model_scalar_type"] = scalar.DataTypeScalar
+                kwargs["data_model_union_type"] = union.DataTypeUnion
+        elif target_python_version in {PythonVersion.PY_39, PythonVersion.PY_310, PythonVersion.PY_311}:
+            kwargs["data_model_scalar_type"] = scalar.DataTypeScalarTypeBackport
+            kwargs["data_model_union_type"] = union.DataTypeUnionTypeBackport
+        else:
+            kwargs["data_model_scalar_type"] = scalar.DataTypeScalarTypeStatement
+            kwargs["data_model_union_type"] = union.DataTypeUnionTypeStatement
+
     source = input_text or input_
     assert not isinstance(source, Mapping)
     parser = parser_class(
@@ -444,7 +462,6 @@ def generate(  # noqa: PLR0912, PLR0913, PLR0914, PLR0915
         use_standard_collections=use_standard_collections,
         base_path=input_.parent if isinstance(input_, Path) and input_.is_file() else None,
         use_schema_description=use_schema_description,
-        use_type_alias=use_type_alias,
         use_field_description=use_field_description,
         use_default_kwarg=use_default_kwarg,
         reuse_model=reuse_model,
@@ -479,6 +496,7 @@ def generate(  # noqa: PLR0912, PLR0913, PLR0914, PLR0915
         use_double_quotes=use_double_quotes,
         use_union_operator=use_union_operator,
         collapse_root_models=collapse_root_models,
+        use_type_alias=use_type_alias,
         special_field_name_prefix=special_field_name_prefix,
         remove_special_field_name_prefix=remove_special_field_name_prefix,
         capitalise_enum_members=capitalise_enum_members,

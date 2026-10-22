@@ -103,6 +103,26 @@ SortedDataModels = dict[str, DataModel]
 MAX_RECURSION_COUNT: int = sys.getrecursionlimit()
 
 
+def add_model_path_to_list(
+    paths: list[str] | None,
+    model: DataModel,
+    /,
+) -> list[str]:
+    """Add a model path to a list of paths that need an update action.
+
+    Type aliases are skipped: they are plain assignments, so they have no
+    `model_rebuild()` or `update_forward_refs()` to call.
+    """
+    if paths is None:
+        paths = []
+    if model.is_alias:
+        return paths
+    if (path := model.path) in paths:
+        return paths
+    paths.append(path)
+    return paths
+
+
 def sort_data_models(  # noqa: PLR0912
     unsorted_data_models: list[DataModel],
     sorted_data_models: SortedDataModels | None = None,
@@ -121,13 +141,13 @@ def sort_data_models(  # noqa: PLR0912
             sorted_data_models[model.path] = model
         elif model.path in model.reference_classes and len(model.reference_classes) == 1:  # only self-referencing
             sorted_data_models[model.path] = model
-            require_update_action_models.append(model.path)
+            add_model_path_to_list(require_update_action_models, model)
         elif (
             not model.reference_classes - {model.path} - set(sorted_data_models)
         ):  # reference classes have been resolved
             sorted_data_models[model.path] = model
             if model.path in model.reference_classes:
-                require_update_action_models.append(model.path)
+                add_model_path_to_list(require_update_action_models, model)
         else:
             unresolved_references.append(model)
     if unresolved_references:
@@ -176,11 +196,11 @@ def sort_data_models(  # noqa: PLR0912
             if not unresolved_model:
                 sorted_data_models[model.path] = model
                 if update_action_parent:
-                    require_update_action_models.append(model.path)
+                    add_model_path_to_list(require_update_action_models, model)
                 continue
             if not unresolved_model - unsorted_data_model_names:
                 sorted_data_models[model.path] = model
-                require_update_action_models.append(model.path)
+                add_model_path_to_list(require_update_action_models, model)
                 continue
             # unresolved
             unresolved_classes = ", ".join(
@@ -332,7 +352,6 @@ class Parser(ABC):
         use_standard_collections: bool = False,
         base_path: Path | None = None,
         use_schema_description: bool = False,
-        use_type_alias: bool = False,
         use_field_description: bool = False,
         use_default_kwarg: bool = False,
         reuse_model: bool = False,
@@ -364,6 +383,7 @@ class Parser(ABC):
         use_union_operator: bool = False,
         allow_responses_without_content: bool = False,
         collapse_root_models: bool = False,
+        use_type_alias: bool = False,
         special_field_name_prefix: str | None = None,
         remove_special_field_name_prefix: bool = False,
         capitalise_enum_members: bool = False,
@@ -416,7 +436,6 @@ class Parser(ABC):
         self.apply_default_values_for_required_fields: bool = apply_default_values_for_required_fields
         self.force_optional_for_required_fields: bool = force_optional_for_required_fields
         self.use_schema_description: bool = use_schema_description
-        self.use_type_alias: bool = use_type_alias
         self.use_field_description: bool = use_field_description
         self.use_default_kwarg: bool = use_default_kwarg
         self.reuse_model: bool = reuse_model
@@ -490,6 +509,7 @@ class Parser(ABC):
         self.use_double_quotes = use_double_quotes
         self.allow_responses_without_content = allow_responses_without_content
         self.collapse_root_models = collapse_root_models
+        self.use_type_alias = use_type_alias
         self.capitalise_enum_members = capitalise_enum_members
         self.keep_model_order = keep_model_order
         self.use_one_literal_as_default = use_one_literal_as_default
@@ -912,7 +932,7 @@ class Parser(ABC):
                         custom_template_dir=model._custom_template_dir,  # noqa: SLF001
                     )
                     if cached_model_reference.path in require_update_action_models:
-                        require_update_action_models.append(inherited_model.path)
+                        add_model_path_to_list(require_update_action_models, inherited_model)
                     models.insert(index, inherited_model)
                     models.remove(model)
 
@@ -1175,6 +1195,39 @@ class Parser(ABC):
                     model_field.nullable = False
 
     @classmethod
+    def __update_type_aliases(cls, models: list[DataModel]) -> None:
+        """Quote references to type aliases that are not rendered yet.
+
+        An assignment-based alias evaluates its value eagerly, so a reference
+        to an alias defined further down the module raises `NameError`. Python
+        3.12 `type` statements defer evaluation and are left alone.
+        """
+        rendered_aliases: set[str] = set()
+
+        for model in models:
+            if not model.is_alias:
+                continue
+
+            if model.defers_evaluation:
+                rendered_aliases.add(model.class_name)
+                continue
+
+            for field in model.fields:
+                for data_type in field.data_type.all_data_types:
+                    if not data_type.reference:
+                        continue
+                    source = data_type.reference.source
+                    if not isinstance(source, DataModel) or not source.is_alias:
+                        continue
+                    if source.defers_evaluation:  # pragma: no cover
+                        continue
+                    name = data_type.reference.short_name
+                    if name not in rendered_aliases:
+                        data_type.alias = f'"{name}"'
+
+            rendered_aliases.add(model.class_name)
+
+    @classmethod
     def __postprocess_result_modules(cls, results: dict[tuple[str, ...], Result]) -> dict[tuple[str, ...], Result]:
         def process(input_tuple: tuple[str, ...]) -> tuple[str, ...]:
             r = []
@@ -1387,6 +1440,7 @@ class Parser(ABC):
                 if with_import:
                     result += [str(self.imports), str(imports), "\n"]
 
+                self.__update_type_aliases(models)
                 code = dump_templates(models)
                 result += [code]
 

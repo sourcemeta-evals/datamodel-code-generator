@@ -258,6 +258,9 @@ class DataModel(TemplateBase, Nullable, ABC):
     TEMPLATE_FILE_PATH: ClassVar[str] = ""
     BASE_CLASS: ClassVar[str] = ""
     DEFAULT_IMPORTS: ClassVar[tuple[Import, ...]] = ()
+    IS_ALIAS: bool = False
+    DEFERS_EVALUATION: bool = False
+    ALIAS_SYNTAX: ClassVar[str] = ""
 
     def __init__(  # noqa: PLR0913
         self,
@@ -427,6 +430,14 @@ class DataModel(TemplateBase, Nullable, ABC):
         yield from self.base_classes
 
     @property
+    def is_alias(self) -> bool:
+        return self.IS_ALIAS
+
+    @property
+    def defers_evaluation(self) -> bool:
+        return self.DEFERS_EVALUATION
+
+    @property
     def nullable(self) -> bool:
         return self._nullable
 
@@ -444,5 +455,6 @@ class DataModel(TemplateBase, Nullable, ABC):
             description=self.description,
             keyword_only=self.keyword_only,
             frozen=self.frozen,
+            alias_syntax=self.ALIAS_SYNTAX,
             **self.extra_template_data,
         )

@@ -24,7 +24,6 @@ from datamodel_code_generator.model.imports import (
 from datamodel_code_generator.model.pydantic.base_model import (
     Constraints as _Constraints,
 )
-from datamodel_code_generator.model.rootmodel import RootModel as _RootModel
 from datamodel_code_generator.model.types import DataTypeManager as _DataTypeManager
 from datamodel_code_generator.model.types import type_map_factory
 from datamodel_code_generator.types import (
@@ -70,10 +69,6 @@ def import_extender(cls: type[DataModelFieldBaseT]) -> type[DataModelFieldBaseT]
 
     cls.imports = property(new_imports)  # pyright: ignore[reportAttributeAccessIssue]
     return cls
-
-
-class RootModel(_RootModel):
-    pass
 
 
 class Struct(DataModel):
@@ -261,14 +256,15 @@ class DataModelField(DataModelFieldBase):
                 continue  # pragma: no cover
             if data_type.is_list and len(data_type.data_types) == 1:
                 data_type_child = data_type.data_types[0]
+                child_source = data_type_child.reference.source if data_type_child.reference else None
                 if (  # pragma: no cover
-                    data_type_child.reference
-                    and (isinstance(data_type_child.reference.source, (Struct, RootModel)))
+                    isinstance(child_source, DataModel)
+                    and (isinstance(child_source, Struct) or child_source.is_alias)
                     and isinstance(self.default, list)
                 ):
                     return (
                         f"lambda: {self._PARSE_METHOD}({self.default!r},  "
-                        f"type=list[{data_type_child.alias or data_type_child.reference.source.class_name}])"
+                        f"type=list[{data_type_child.alias or child_source.class_name}])"
                     )
             elif data_type.reference and isinstance(data_type.reference.source, Struct):
                 return (

@@ -1,0 +1,13 @@
+{%- if fields -%}
+{%- if fields[0].annotated -%}{%- set alias_value = fields[0].annotated -%}{%- elif fields[0].field -%}{%- set alias_value = 'Annotated[' ~ fields[0].type_hint ~ ', ' ~ fields[0].field ~ ']' -%}{%- else -%}{%- set alias_value = fields[0].type_hint -%}{%- endif -%}
+{%- else -%}{%- set alias_value = base_class -%}{%- endif -%}
+{% if alias_syntax == 'statement' %}type {{ class_name }} = {{ alias_value }}{% elif alias_syntax == 'alias_type' %}{{ class_name }} = TypeAliasType("{{ class_name }}", {{ alias_value }}){% else %}{{ class_name }}: TypeAlias = {{ alias_value }}{% endif %}{% if comment is defined %}  # {{ comment }}{% endif %}
+{%- if description %}
+"""
+{{ description | indent(0) }}
+"""
+{%- elif fields and fields[0].docstring %}
+"""
+{{ fields[0].docstring | indent(0) }}
+"""
+{%- endif %}

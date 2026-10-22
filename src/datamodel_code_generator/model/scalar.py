@@ -3,7 +3,12 @@ from __future__ import annotations
 from collections import defaultdict
 from typing import TYPE_CHECKING, Any, ClassVar
 
-from datamodel_code_generator.imports import IMPORT_TYPE_ALIAS, IMPORT_TYPE_ALIAS_BACKPORT, Import
+from datamodel_code_generator.imports import (
+    IMPORT_TYPE_ALIAS,
+    IMPORT_TYPE_ALIAS_BACKPORT,
+    IMPORT_TYPE_ALIAS_TYPE,
+    Import,
+)
 from datamodel_code_generator.model import DataModel, DataModelFieldBase
 from datamodel_code_generator.model.base import UNDEFINED
 
@@ -29,11 +34,7 @@ DEFAULT_GRAPHQL_SCALAR_TYPES: dict[str, str] = {
 }
 
 
-class DataTypeScalar(DataModel):
-    TEMPLATE_FILE_PATH: ClassVar[str] = "Scalar.jinja2"
-    BASE_CLASS: ClassVar[str] = ""
-    DEFAULT_IMPORTS: ClassVar[tuple[Import, ...]] = (IMPORT_TYPE_ALIAS,)
-
+class _DataTypeScalarBase(DataModel):
     def __init__(  # noqa: PLR0913
         self,
         *,
@@ -83,5 +84,29 @@ class DataTypeScalar(DataModel):
         )
 
 
-class DataTypeScalarBackport(DataTypeScalar):
+class DataTypeScalar(_DataTypeScalarBase):
+    TEMPLATE_FILE_PATH: ClassVar[str] = "Scalar.jinja2"
+    ALIAS_SYNTAX: ClassVar[str] = "annotation"
+    BASE_CLASS: ClassVar[str] = ""
+    DEFAULT_IMPORTS: ClassVar[tuple[Import, ...]] = (IMPORT_TYPE_ALIAS,)
+
+
+class DataTypeScalarBackport(_DataTypeScalarBase):
+    TEMPLATE_FILE_PATH: ClassVar[str] = "Scalar.jinja2"
+    ALIAS_SYNTAX: ClassVar[str] = "annotation"
+    BASE_CLASS: ClassVar[str] = ""
     DEFAULT_IMPORTS: ClassVar[tuple[Import, ...]] = (IMPORT_TYPE_ALIAS_BACKPORT,)
+
+
+class DataTypeScalarTypeBackport(_DataTypeScalarBase):
+    TEMPLATE_FILE_PATH: ClassVar[str] = "Scalar.jinja2"
+    ALIAS_SYNTAX: ClassVar[str] = "alias_type"
+    BASE_CLASS: ClassVar[str] = ""
+    DEFAULT_IMPORTS: ClassVar[tuple[Import, ...]] = (IMPORT_TYPE_ALIAS_TYPE,)
+
+
+class DataTypeScalarTypeStatement(_DataTypeScalarBase):
+    TEMPLATE_FILE_PATH: ClassVar[str] = "Scalar.jinja2"
+    ALIAS_SYNTAX: ClassVar[str] = "statement"
+    BASE_CLASS: ClassVar[str] = ""
+    DEFAULT_IMPORTS: ClassVar[tuple[Import, ...]] = ()

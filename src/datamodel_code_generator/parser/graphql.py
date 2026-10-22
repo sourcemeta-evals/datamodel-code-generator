@@ -19,8 +19,8 @@ from datamodel_code_generator.model import DataModel, DataModelFieldBase
 from datamodel_code_generator.model import pydantic as pydantic_model
 from datamodel_code_generator.model.dataclass import DataClass
 from datamodel_code_generator.model.enum import Enum
-from datamodel_code_generator.model.scalar import DataTypeScalar, DataTypeScalarBackport
-from datamodel_code_generator.model.union import DataTypeUnion, DataTypeUnionBackport
+from datamodel_code_generator.model.scalar import DataTypeScalarBackport
+from datamodel_code_generator.model.union import DataTypeUnionBackport
 from datamodel_code_generator.parser.base import (
     DataType,
     Parser,
@@ -84,8 +84,8 @@ class GraphQLParser(Parser):
         *,
         data_model_type: type[DataModel] = pydantic_model.BaseModel,
         data_model_root_type: type[DataModel] = pydantic_model.CustomRootType,
-        data_model_scalar_type: type[DataModel] = DataTypeScalar,
-        data_model_union_type: type[DataModel] = DataTypeUnion,
+        data_model_scalar_type: type[DataModel] = DataTypeScalarBackport,
+        data_model_union_type: type[DataModel] = DataTypeUnionBackport,
         data_type_manager_type: type[DataTypeManager] = pydantic_model.DataTypeManager,
         data_model_field_type: type[DataModelFieldBase] = pydantic_model.DataModelField,
         base_class: str | None = None,
@@ -108,7 +108,6 @@ class GraphQLParser(Parser):
         use_standard_collections: bool = False,
         base_path: Path | None = None,
         use_schema_description: bool = False,
-        use_type_alias: bool = False,
         use_field_description: bool = False,
         use_default_kwarg: bool = False,
         reuse_model: bool = False,
@@ -140,6 +139,7 @@ class GraphQLParser(Parser):
         use_union_operator: bool = False,
         allow_responses_without_content: bool = False,
         collapse_root_models: bool = False,
+        use_type_alias: bool = False,
         special_field_name_prefix: str | None = None,
         remove_special_field_name_prefix: bool = False,
         capitalise_enum_members: bool = False,
@@ -186,7 +186,6 @@ class GraphQLParser(Parser):
             use_standard_collections=use_standard_collections,
             base_path=base_path,
             use_schema_description=use_schema_description,
-            use_type_alias=use_type_alias,
             use_field_description=use_field_description,
             use_default_kwarg=use_default_kwarg,
             reuse_model=reuse_model,
@@ -219,6 +218,7 @@ class GraphQLParser(Parser):
             use_union_operator=use_union_operator,
             allow_responses_without_content=allow_responses_without_content,
             collapse_root_models=collapse_root_models,
+            use_type_alias=use_type_alias,
             special_field_name_prefix=special_field_name_prefix,
             remove_special_field_name_prefix=remove_special_field_name_prefix,
             capitalise_enum_members=capitalise_enum_members,
@@ -239,12 +239,8 @@ class GraphQLParser(Parser):
             parent_scoped_naming=parent_scoped_naming,
         )
 
-        if use_type_alias:
-            self.data_model_scalar_type = DataTypeScalarBackport
-            self.data_model_union_type = DataTypeUnionBackport
-        else:
-            self.data_model_scalar_type = data_model_scalar_type
-            self.data_model_union_type = data_model_union_type
+        self.data_model_scalar_type = data_model_scalar_type
+        self.data_model_union_type = data_model_union_type
         self.use_standard_collections = use_standard_collections
         self.use_union_operator = use_union_operator
 

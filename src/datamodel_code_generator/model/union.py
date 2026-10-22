@@ -2,7 +2,13 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, Any, ClassVar
 
-from datamodel_code_generator.imports import IMPORT_TYPE_ALIAS, IMPORT_TYPE_ALIAS_BACKPORT, IMPORT_UNION, Import
+from datamodel_code_generator.imports import (
+    IMPORT_TYPE_ALIAS,
+    IMPORT_TYPE_ALIAS_BACKPORT,
+    IMPORT_TYPE_ALIAS_TYPE,
+    IMPORT_UNION,
+    Import,
+)
 from datamodel_code_generator.model import DataModel, DataModelFieldBase
 from datamodel_code_generator.model.base import UNDEFINED
 
@@ -13,14 +19,7 @@ if TYPE_CHECKING:
     from datamodel_code_generator.reference import Reference
 
 
-class DataTypeUnion(DataModel):
-    TEMPLATE_FILE_PATH: ClassVar[str] = "Union.jinja2"
-    BASE_CLASS: ClassVar[str] = ""
-    DEFAULT_IMPORTS: ClassVar[tuple[Import, ...]] = (
-        IMPORT_TYPE_ALIAS,
-        IMPORT_UNION,
-    )
-
+class _DataTypeUnionBase(DataModel):
     def __init__(  # noqa: PLR0913
         self,
         *,
@@ -57,8 +56,38 @@ class DataTypeUnion(DataModel):
         )
 
 
-class DataTypeUnionBackport(DataTypeUnion):
+class DataTypeUnion(_DataTypeUnionBase):
+    TEMPLATE_FILE_PATH: ClassVar[str] = "Union.jinja2"
+    ALIAS_SYNTAX: ClassVar[str] = "annotation"
+    BASE_CLASS: ClassVar[str] = ""
+    DEFAULT_IMPORTS: ClassVar[tuple[Import, ...]] = (
+        IMPORT_TYPE_ALIAS,
+        IMPORT_UNION,
+    )
+
+
+class DataTypeUnionBackport(_DataTypeUnionBase):
+    TEMPLATE_FILE_PATH: ClassVar[str] = "Union.jinja2"
+    ALIAS_SYNTAX: ClassVar[str] = "annotation"
+    BASE_CLASS: ClassVar[str] = ""
     DEFAULT_IMPORTS: ClassVar[tuple[Import, ...]] = (
         IMPORT_TYPE_ALIAS_BACKPORT,
         IMPORT_UNION,
     )
+
+
+class DataTypeUnionTypeBackport(_DataTypeUnionBase):
+    TEMPLATE_FILE_PATH: ClassVar[str] = "Union.jinja2"
+    ALIAS_SYNTAX: ClassVar[str] = "alias_type"
+    BASE_CLASS: ClassVar[str] = ""
+    DEFAULT_IMPORTS: ClassVar[tuple[Import, ...]] = (
+        IMPORT_TYPE_ALIAS_TYPE,
+        IMPORT_UNION,
+    )
+
+
+class DataTypeUnionTypeStatement(_DataTypeUnionBase):
+    TEMPLATE_FILE_PATH: ClassVar[str] = "Union.jinja2"
+    ALIAS_SYNTAX: ClassVar[str] = "statement"
+    BASE_CLASS: ClassVar[str] = ""
+    DEFAULT_IMPORTS: ClassVar[tuple[Import, ...]] = (IMPORT_UNION,)

@@ -191,12 +191,6 @@ model_options.add_argument(
     default=None,
 )
 model_options.add_argument(
-    "--use-type-alias",
-    help="type alias",
-    action="store_true",
-    default=None,
-)
-model_options.add_argument(
     "--use-title-as-name",
     help="use titles as class names of models",
     action="store_true",
@@ -309,6 +303,12 @@ typing_options.add_argument(
 typing_options.add_argument(
     "--use-unique-items-as-set",
     help="define field type as `set` when the field attribute has `uniqueItems`",
+    action="store_true",
+    default=None,
+)
+typing_options.add_argument(
+    "--use-type-alias",
+    help="Use TypeAlias instead of root models (experimental)",
     action="store_true",
     default=None,
 )

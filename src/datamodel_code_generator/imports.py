@@ -100,6 +100,7 @@ IMPORT_OPTIONAL = Import.from_full_path("typing.Optional")
 IMPORT_LITERAL = Import.from_full_path("typing.Literal")
 IMPORT_TYPE_ALIAS = Import.from_full_path("typing.TypeAlias")
 IMPORT_TYPE_ALIAS_BACKPORT = Import.from_full_path("typing_extensions.TypeAlias")
+IMPORT_TYPE_ALIAS_TYPE = Import.from_full_path("typing_extensions.TypeAliasType")
 IMPORT_SEQUENCE = Import.from_full_path("typing.Sequence")
 IMPORT_FROZEN_SET = Import.from_full_path("typing.FrozenSet")
 IMPORT_MAPPING = Import.from_full_path("typing.Mapping")
@@ -120,22 +121,3 @@ IMPORT_PENDULUM_DATE = Import.from_full_path("pendulum.Date")
 IMPORT_PENDULUM_DATETIME = Import.from_full_path("pendulum.DateTime")
 IMPORT_PENDULUM_DURATION = Import.from_full_path("pendulum.Duration")
 IMPORT_PENDULUM_TIME = Import.from_full_path("pendulum.Time")
-
-# xxxx
-# xxxx
-# xxxx
-# xxxx
-# xxxx
-# xxxx
-# xxxx
-# xxxx
-# xxxx
-# xxxx
-# xxxx
-# xxxx
-# xxxx
-# xxxx
-# xxxx
-# xxxx
-# xxxx
-# xxxx
