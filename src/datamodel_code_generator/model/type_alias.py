@@ -16,6 +16,8 @@ from datamodel_code_generator.types import chain_as_tuple
 class TypeAliasBase(DataModel):
     """Base class for all type alias implementations."""
 
+    IS_ALIAS: bool = True
+
     @property
     def imports(self) -> tuple[Import, ...]:
         imports = super().imports
@@ -50,7 +52,11 @@ class TypeAliasTypeBackport(TypeAliasBase):
 
 
 class TypeStatement(TypeAliasBase):
-    """Type statement for Python 3.12+ (type Name = type)"""
+    """Type statement for Python 3.12+ (type Name = type)
+
+    Python 3.12+ type statements use deferred evaluation, so forward
+    references do not need to be quoted.
+    """
 
     TEMPLATE_FILE_PATH: ClassVar[str] = "TypeStatement.jinja2"
     BASE_CLASS: ClassVar[str] = ""
