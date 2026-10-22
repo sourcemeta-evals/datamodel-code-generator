@@ -1221,8 +1221,11 @@ class JsonSchemaParser(Parser):
         reference = self.model_resolver.add(path, name, loaded=True, class_name=True)
         field = self.parse_array_fields(original_name or name, obj, [*path, name])
 
-        if reference in [d.reference for d in field.data_type.all_data_types if d.reference]:
-            # self-reference
+        if reference in [
+            d.reference for d in field.data_type.all_data_types if d.reference
+        ] and not self.data_model_root_type.IS_ALIAS:
+            # self-reference, rewritten for the root-model wrapper only: an alias
+            # keeps the recursive item type and relies on forward-reference quoting
             field = self.data_model_field_type(
                 data_type=self.data_type(
                     data_types=[
