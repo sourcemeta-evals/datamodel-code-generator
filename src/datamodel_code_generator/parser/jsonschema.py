@@ -887,6 +887,11 @@ class JsonSchemaParser(Parser):
         final_type: str | None
         if isinstance(parent_type, str):
             final_type = parent_type
+        elif isinstance(parent_type, list):
+            non_null_types = [t for t in parent_type if t != "null"]
+            final_type = non_null_types[0] if non_null_types else None
+            if "null" in parent_type:
+                nullable = True
         else:
             final_type = None
 
