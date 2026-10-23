@@ -37,7 +37,19 @@ type Person {
   name: String
   born: Date
 }
+
+type Pet {
+  name: String
+}
+
+union Being = Person | Pet
+
+type Query {
+  being: Being
+}
 """
+
+NON_PYDANTIC_MODELS = ["dataclasses.dataclass", "typing.TypedDict", "msgspec.Struct"]
 
 
 @pytest.fixture(autouse=True)
@@ -92,6 +104,27 @@ def generate_graphql(tmp_path: Path, output_model: str, target: str, *arguments:
     return output_file.read_text(encoding="utf-8")
 
 
+def imports_from_typing_extensions(generated: str, name: str) -> bool:
+    """Return whether ``name`` is imported from ``typing_extensions``."""
+    return any(line.startswith("from typing_extensions import") and name in line for line in generated.splitlines())
+
+
+def alias_definition(generated: str, name: str) -> str:
+    """Return the definition of the alias ``name`` on one line, however it is wrapped."""
+    lines = generated.splitlines()
+    starts = [
+        index
+        for index, line in enumerate(lines)
+        if line.startswith((f"{name} ", f"{name}:", f"type {name} ", f"type {name}="))
+    ]
+    assert starts, f"no definition of {name} in:\n{generated}"
+    start = starts[0]
+    end = start + 1
+    while end < len(lines) and lines[end].startswith((" ", ")", "]")):
+        end += 1
+    return " ".join(line.strip() for line in lines[start:end])
+
+
 def test_pydantic_v1_python_39_uses_the_backport_annotation(tmp_path: Path) -> None:
     """Pydantic v1 on Python 3.9 annotates with the typing_extensions backport."""
     generated = generate(tmp_path, "pydantic.BaseModel", "3.9", "--use-type-alias")
@@ -141,3 +174,55 @@ def test_graphql_scalars_use_the_type_statement_on_python_312(tmp_path: Path) ->
     generated = generate_graphql(tmp_path, "pydantic_v2.BaseModel", "3.12")
     assert "type Date = str" in generated
     assert "TypeAliasType(" not in generated
+
+
+@pytest.mark.parametrize("arguments", [(), ("--use-type-alias",)], ids=["flag-off", "flag-on"])
+@pytest.mark.parametrize("target", ["3.9", "3.11"])
+@pytest.mark.parametrize("output_model", NON_PYDANTIC_MODELS)
+def test_non_pydantic_roots_use_the_backport_before_python_312(
+    output_model: str, target: str, arguments: tuple[str, ...], tmp_path: Path
+) -> None:
+    """Dataclass, TypedDict and msgspec roots construct TypeAliasType before 3.12, flag or not."""
+    generated = generate(tmp_path, output_model, target, *arguments)
+    assert 'SimpleString = TypeAliasType("SimpleString", str)' in generated
+    assert 'UnionType = TypeAliasType("UnionType", Union[str, int])' in generated
+    assert imports_from_typing_extensions(generated, "TypeAliasType")
+    assert "type SimpleString" not in generated
+    assert "RootModel" not in generated
+
+
+@pytest.mark.parametrize("arguments", [(), ("--use-type-alias",)], ids=["flag-off", "flag-on"])
+@pytest.mark.parametrize("output_model", NON_PYDANTIC_MODELS)
+def test_non_pydantic_roots_use_the_type_statement_on_python_312(
+    output_model: str, arguments: tuple[str, ...], tmp_path: Path
+) -> None:
+    """Dataclass, TypedDict and msgspec roots use the native statement on 3.12, flag or not."""
+    generated = generate(tmp_path, output_model, "3.12", *arguments)
+    assert "type SimpleString = str" in generated
+    assert "type UnionType = Union[str, int]" in generated
+    assert "TypeAliasType(" not in generated
+    assert "RootModel" not in generated
+    assert not any(line.startswith("SimpleString") for line in generated.splitlines())
+
+
+@pytest.mark.parametrize("arguments", [(), ("--use-type-alias",)], ids=["flag-off", "flag-on"])
+def test_graphql_unions_are_aliases_before_python_312(arguments: tuple[str, ...], tmp_path: Path) -> None:
+    """A GraphQL union is a backported alias over its members whether or not the flag is passed."""
+    generated = generate_graphql(tmp_path, "pydantic_v2.BaseModel", "3.9", *arguments)
+    definition = alias_definition(generated, "Being")
+    assert "TypeAliasType" in definition
+    assert '"Being"' in definition
+    assert "Person" in definition
+    assert "Pet" in definition
+    assert imports_from_typing_extensions(generated, "TypeAliasType")
+
+
+@pytest.mark.parametrize("arguments", [(), ("--use-type-alias",)], ids=["flag-off", "flag-on"])
+def test_graphql_unions_use_the_type_statement_on_python_312(arguments: tuple[str, ...], tmp_path: Path) -> None:
+    """A GraphQL union uses the native statement on Python 3.12 whether or not the flag is passed."""
+    generated = generate_graphql(tmp_path, "pydantic_v2.BaseModel", "3.12", *arguments)
+    definition = alias_definition(generated, "Being")
+    assert definition.startswith("type Being")
+    assert "Person" in definition
+    assert "Pet" in definition
+    assert "TypeAliasType" not in definition
