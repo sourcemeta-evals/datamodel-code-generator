@@ -738,13 +738,9 @@ class JsonSchemaParser(Parser):
         inferred_types: set[str] = set()
 
         for item in items:
-            if item.type == "null" and "const" not in item.extras:
-                nullable = True
-                continue
-
-            if "const" not in item.extras:
-                return None
-
+            # Checked before the null shortcut below: a branch carrying any of
+            # these is governed by them rather than by a sibling `type: "null"`,
+            # so it is not a plain null alternative and the union must fall back.
             if (
                 item.ref is not None
                 or item.properties is not None
@@ -752,6 +748,13 @@ class JsonSchemaParser(Parser):
                 or item.anyOf
                 or item.allOf
             ):
+                return None
+
+            if item.type == "null" and "const" not in item.extras:
+                nullable = True
+                continue
+
+            if "const" not in item.extras:
                 return None
 
             const_value = item.extras["const"]
