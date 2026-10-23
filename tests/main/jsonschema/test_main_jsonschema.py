@@ -38,6 +38,8 @@ from tests.main.conftest import (
 from tests.main.jsonschema.conftest import EXPECTED_JSON_SCHEMA_PATH, assert_file_content
 
 if TYPE_CHECKING:
+    from typing import Any
+
     from pytest_mock import MockerFixture
 
 
@@ -2075,19 +2077,67 @@ def test_main_jsonschema_oneof_const_type_list_branch_const(output_file: Path) -
     )
 
 
+def test_main_jsonschema_oneof_const_null_type_list_branch(output_file: Path) -> None:
+    """Test a null alternative written as a single-entry type list keeps the enum optional."""
+    run_main_and_assert(
+        input_path=JSON_SCHEMA_DATA_PATH / "oneof_const_null_type_list_branch.json",
+        output_path=output_file,
+        input_file_type="jsonschema",
+        assert_func=assert_file_content,
+        expected_file="oneof_const_null_type_list_branch.py",
+    )
+
+
+def test_main_jsonschema_oneof_const_existing_enum(output_file: Path) -> None:
+    """Test a schema with its own enum beside a const union keeps the narrower restriction."""
+    run_main_and_assert(
+        input_path=JSON_SCHEMA_DATA_PATH / "oneof_const_existing_enum.json",
+        output_path=output_file,
+        input_file_type="jsonschema",
+        assert_func=assert_file_content,
+        expected_file="oneof_const_existing_enum.py",
+    )
+
+
+def test_main_jsonschema_oneof_const_constrained_items(output_file: Path) -> None:
+    """Test constrained array items holding a const union generate the enum, not a root type."""
+    run_main_and_assert(
+        input_path=JSON_SCHEMA_DATA_PATH / "oneof_const_constrained_items.json",
+        output_path=output_file,
+        input_file_type="jsonschema",
+        assert_func=assert_file_content,
+        expected_file="oneof_const_constrained_items.py",
+        extra_args=["--field-constraints"],
+    )
+
+
 @pytest.mark.parametrize("literal_args", [[], ["--enum-field-as-literal", "all"]])
 @pytest.mark.parametrize("keyword", ["oneOf", "anyOf"])
+@pytest.mark.parametrize(
+    ("parent", "values", "extra_args"),
+    [
+        ({"type": "string"}, ["npm", "yarn"], []),
+        ({"type": ["string"]}, ["npm", "yarn"], []),
+        ({"type": ["integer"]}, [1, 2], ["--use-subclass-enum"]),
+        ({}, [1, 2], ["--use-subclass-enum"]),
+    ],
+)
 def test_main_jsonschema_const_union_matches_equivalent_enum(
-    keyword: str, literal_args: list[str], tmp_path: Path
+    parent: dict[str, Any],
+    values: list[Any],
+    extra_args: list[str],
+    keyword: str,
+    literal_args: list[str],
+    tmp_path: Path,
 ) -> None:
     """Test a const union generates exactly what the equivalent enum schema generates."""
     outputs = []
     for value_schema in (
-        {keyword: [{"const": "npm"}, {"const": "yarn"}]},
-        {"enum": ["npm", "yarn"]},
+        {keyword: [{"const": value} for value in values]},
+        {"enum": values},
     ):
         schema = tmp_path / "schema.json"
-        schema.write_text(json.dumps({"title": "Mode", "type": "string", **value_schema}), encoding="utf-8")
+        schema.write_text(json.dumps({"title": "Mode", **parent, **value_schema}), encoding="utf-8")
         output = tmp_path / "model.py"
         assert (
             main([
@@ -2098,6 +2148,7 @@ def test_main_jsonschema_const_union_matches_equivalent_enum(
                 "--input-file-type",
                 "jsonschema",
                 "--disable-timestamp",
+                *extra_args,
                 *literal_args,
             ])
             == Exit.OK
