@@ -14,7 +14,9 @@ from typing import TYPE_CHECKING, Any
 
 import pytest
 
+from datamodel_code_generator import PythonVersion
 from datamodel_code_generator.__main__ import Exit, main
+from datamodel_code_generator.format import is_supported_in_black
 
 if TYPE_CHECKING:
     from pathlib import Path
@@ -60,8 +62,15 @@ def reset_namespace(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr("datamodel_code_generator.arguments.namespace", namespace_)
 
 
+def skip_unless_black_supports(target: str) -> None:
+    """Skip when the installed black cannot format for the requested target."""
+    if not is_supported_in_black(PythonVersion(target)):
+        pytest.skip(f"Installed black doesn't support Python version {target}")
+
+
 def generate(tmp_path: Path, output_model: str, target: str, *arguments: str) -> str:
     """Generate from the JSON Schema fixture and return the output."""
+    skip_unless_black_supports(target)
     input_file = tmp_path / "schema.json"
     input_file.write_text(json.dumps(SCHEMA), encoding="utf-8")
     output_file = tmp_path / "output.py"
@@ -84,6 +93,7 @@ def generate(tmp_path: Path, output_model: str, target: str, *arguments: str) ->
 
 def generate_graphql(tmp_path: Path, output_model: str, target: str, *arguments: str) -> str:
     """Generate from the GraphQL fixture and return the output."""
+    skip_unless_black_supports(target)
     input_file = tmp_path / "schema.graphql"
     input_file.write_text(GRAPHQL, encoding="utf-8")
     output_file = tmp_path / "output.py"

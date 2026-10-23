@@ -17,7 +17,9 @@ from typing import TYPE_CHECKING, Any
 import pytest
 from pydantic import TypeAdapter, ValidationError
 
+from datamodel_code_generator import PythonVersion
 from datamodel_code_generator.__main__ import Exit, main
+from datamodel_code_generator.format import is_supported_in_black
 
 if TYPE_CHECKING:
     from collections.abc import Iterator
@@ -101,6 +103,11 @@ type Query {
 }
 """
 
+
+SKIP_WITHOUT_BLACK_312 = pytest.mark.skipif(
+    not is_supported_in_black(PythonVersion.PY_312),
+    reason="Installed black doesn't support Python version 3.12",
+)
 
 IMPORTED_MODULES: list[str] = []
 
@@ -279,6 +286,7 @@ def test_recursive_array_alias_keeps_its_item_type(tmp_path: Path) -> None:
         module.Root(tree=[1])
 
 
+@SKIP_WITHOUT_BLACK_312
 def test_recursive_type_statement_has_no_rebuild_call(tmp_path: Path) -> None:
     """The Python 3.12 form defers evaluation and gets no model_rebuild call.
 
@@ -339,6 +347,7 @@ def test_reuse_model_imports_duplicate_graphql_unions(tmp_path: Path) -> None:
     assert_union_over_person_and_pet(module, "Creature")
 
 
+@SKIP_WITHOUT_BLACK_312
 @pytest.mark.skipif(sys.version_info < (3, 12), reason="The native type statement needs Python 3.12")
 def test_reuse_model_imports_duplicate_graphql_unions_natively(tmp_path: Path) -> None:
     """The Python 3.12 form keeps every member of the reused union."""
