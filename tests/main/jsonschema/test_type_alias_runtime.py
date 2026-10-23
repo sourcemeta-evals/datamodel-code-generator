@@ -33,7 +33,7 @@ RECURSIVE_SCHEMA: dict[str, Any] = {
     "properties": {"tree": {"$ref": "#/definitions/Node"}},
     "definitions": {
         "Node": {
-            "description": "A Node value",
+            "description": "It's a Node value",
             "anyOf": [
                 {"type": "string"},
                 {"type": "array", "items": {"$ref": "#/definitions/Node"}},
@@ -256,6 +256,7 @@ def test_recursive_alias_backport_imports_and_validates(tmp_path: Path) -> None:
         "3.9",
     )
     module = import_module(output_file, "eval_alias_recursive_backport")
+    assert "It's a Node value" in output_file.read_text(encoding="utf-8")
     assert module.Root(tree=["a", ["b"]]).tree == ["a", ["b"]]
     with pytest.raises(ValidationError):
         module.Root(tree=1)
