@@ -754,28 +754,33 @@ class JsonSchemaParser(Parser):
                 return None
 
             const_value = item.extras["const"]
+            if const_value is None:
+                # `const: null` admits nothing but null, exactly as
+                # `type: "null"` does, so it is the same alternative and not a
+                # value the enum has to carry.
+                nullable = True
+                continue
             enum_values.append(const_value)
 
-        if not enum_values:  # pragma: no cover
+        if not enum_values and not nullable:  # pragma: no cover
             return None
 
         # The schema's own `type` governs, exactly as it would for an equivalent
         # `enum` schema. A type is never inferred from the const values, because
         # that would make a const union render differently from that equivalent.
-        final_type: str | list[str] | None
+        # It is also left as written, including a list, because an equivalent
+        # `enum` schema carrying the same list renders unspecialised.
+        final_type: str | list[str] | None = parent_type
         if isinstance(parent_type, list) and "null" in parent_type:
-            nullable = True
             non_null_types = [t for t in parent_type if t != "null"]
-            # A single remaining type governs, which is what makes
-            # `type: [string, "null"]` behave as a nullable string enum. Several
-            # remaining types stay a list, because picking one would specialise
-            # the enum on a type its values need not satisfy.
-            final_type = non_null_types[0] if len(non_null_types) == 1 else non_null_types or None
-        else:
-            # Left exactly as written, including a list: an equivalent `enum`
-            # schema carrying the same list renders unspecialised, so collapsing
-            # it here would make the two disagree.
-            final_type = parent_type
+            if non_null_types == ["string"]:
+                # `type: [string, "null"]` is the one list a nullable enum is
+                # spelled as a scalar instead, because parse_enum drops a null
+                # member from a string enum and marks the enum nullable in its
+                # place. Collapsing it is what renders such a schema as a
+                # nullable string enum rather than an unspecialised one.
+                nullable = True
+                final_type = "string"
 
         return (enum_values, final_type, nullable)
 
@@ -822,11 +827,20 @@ class JsonSchemaParser(Parser):
         base_dict = original.dict(exclude_unset=True, by_alias=True)
         for combinator in ("oneOf", "anyOf"):
             base_dict.pop(combinator, None)
-        base_dict["enum"] = [*enum_values, None] if nullable else enum_values
-        # The key is dropped rather than set to None, because the field's
-        # validator rewrites a None type to the string "null".
+        # parse_enum drops a null member from a string enum only, so a nullable
+        # enum of any other declared type spells its null in the `type`, the way
+        # an equivalent `enum` schema with a nullable type list does. Keeping the
+        # member there instead would rename the others, and a specialised enum
+        # such as IntEnum could not be created from it at all.
+        null_in_type = nullable and enum_type is not None and enum_type != "string"
+        base_dict["enum"] = [*enum_values, None] if nullable and not null_in_type else enum_values
         if enum_type is None:
+            # The key is dropped rather than set to None, because the field's
+            # validator rewrites a None type to the string "null".
             base_dict.pop("type", None)
+        elif null_in_type:
+            enum_types = [enum_type] if isinstance(enum_type, str) else list(enum_type)
+            base_dict["type"] = enum_types if "null" in enum_types else [*enum_types, "null"]
         else:
             base_dict["type"] = enum_type
 
