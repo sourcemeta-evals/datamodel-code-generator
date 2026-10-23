@@ -47,10 +47,10 @@ type Query {
 
 from __future__ import annotations
 
-from typing import List, Optional, TypeAlias
+from typing import List, Optional
 
 from pydantic import BaseModel, Field
-from typing_extensions import Literal
+from typing_extensions import Literal, TypeAlias
 
 # The `Boolean` scalar type represents `true` or `false`.
 Boolean: TypeAlias = bool
@@ -167,10 +167,10 @@ type A {
 
 from __future__ import annotations
 
-from typing import Optional, TypeAlias
+from typing import Optional
 
 from pydantic import BaseModel, Field
-from typing_extensions import Literal
+from typing_extensions import Literal, TypeAlias
 
 # The `Boolean` scalar type represents `true` or `false`.
 Boolean: TypeAlias = bool

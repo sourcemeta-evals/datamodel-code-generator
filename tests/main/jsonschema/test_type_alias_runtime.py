@@ -15,7 +15,7 @@ from argparse import Namespace
 from typing import TYPE_CHECKING, Any
 
 import pytest
-from pydantic import TypeAdapter, ValidationError
+from pydantic import TypeAdapter, ValidationError, validate_call
 
 from datamodel_code_generator import PythonVersion
 from datamodel_code_generator.__main__ import Exit, main
@@ -69,6 +69,14 @@ DUPLICATE_SCHEMA: dict[str, Any] = {
         "CodeA": {"type": "string", "pattern": "^[a-z]+$", "minLength": 3},
         "CodeB": {"type": "string", "pattern": "^[a-z]+$", "minLength": 3},
     },
+}
+
+CONSTRAINED_SCHEMA: dict[str, Any] = {
+    "$schema": "http://json-schema.org/draft-07/schema#",
+    "title": "Root",
+    "type": "object",
+    "properties": {"code": {"$ref": "#/definitions/Code"}},
+    "definitions": {"Code": {"type": "string", "maxLength": 4}},
 }
 
 PACKAGE_COMMON: dict[str, Any] = {
@@ -363,6 +371,31 @@ def test_reuse_model_imports_duplicate_graphql_unions_natively(tmp_path: Path) -
     module = import_module(output_file, "eval_alias_graphql_reuse_native")
     assert_union_over_person_and_pet(module, "Being")
     assert_union_over_person_and_pet(module, "Creature")
+
+
+def test_constrained_alias_validates_a_call_argument(tmp_path: Path) -> None:
+    """A constrained alias keeps its constraint when it annotates a validated call.
+
+    The callable is appended to the generated module so that its annotation
+    resolves against the alias the module defines.
+    """
+    output_file = generate_module(
+        tmp_path,
+        CONSTRAINED_SCHEMA,
+        "--output-model-type",
+        "pydantic_v2.BaseModel",
+        "--target-python-version",
+        "3.9",
+    )
+    output_file.write_text(
+        output_file.read_text(encoding="utf-8") + "\n\ndef shorten(code: Code) -> str:\n    return code\n",
+        encoding="utf-8",
+    )
+    module = import_module(output_file, "eval_alias_validate_call")
+    checked = validate_call(module.shorten)
+    assert checked("ok") == "ok"
+    with pytest.raises(ValidationError):
+        checked("too long")
 
 
 def test_imported_alias_keeps_its_module_qualification(tmp_path: Path) -> None:
