@@ -97,7 +97,7 @@ class User(BaseModel):
 $ datamodel-codegen --input model.json --input-file-type jsonschema --use-type-alias --output model.py
 ```
 
-Generated Model (Python 3.10+)
+Generated Model (Python 3.9)
 
 `model.py`
 ```python
@@ -106,9 +106,10 @@ Generated Model (Python 3.10+)
 
 from __future__ import annotations
 
-from typing import Any, Optional, TypeAlias, Union
+from typing import Any, Optional, Union
 
 from pydantic import BaseModel
+from typing_extensions import TypeAlias
 
 Model: TypeAlias = Any
 
@@ -124,7 +125,13 @@ class User(BaseModel):
     status: Optional[Status] = None
 ```
 
-Generated Model (Python 3.9)
+`TypeAlias` moved into `typing` in Python 3.10, so a newer target imports it from there:
+
+```bash
+$ datamodel-codegen --input model.json --input-file-type jsonschema --use-type-alias --target-python-version 3.10 --output model.py
+```
+
+Generated Model (Python 3.10+)
 
 `model.py`
 ```python
@@ -133,10 +140,9 @@ Generated Model (Python 3.9)
 
 from __future__ import annotations
 
-from typing import Any, Optional, Union
+from typing import Any, Optional, TypeAlias, Union
 
 from pydantic import BaseModel
-from typing_extensions import TypeAlias
 
 Model: TypeAlias = Any
 
