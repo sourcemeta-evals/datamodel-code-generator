@@ -15,11 +15,12 @@ from argparse import Namespace
 from typing import TYPE_CHECKING, Any
 
 import pytest
-from pydantic import ValidationError
+from pydantic import TypeAdapter, ValidationError
 
 from datamodel_code_generator.__main__ import Exit, main
 
 if TYPE_CHECKING:
+    from collections.abc import Iterator
     from pathlib import Path
 
 RECURSIVE_SCHEMA: dict[str, Any] = {
@@ -100,12 +101,19 @@ type Query {
 """
 
 
+IMPORTED_MODULES: list[str] = []
+
+
 @pytest.fixture(autouse=True)
-def reset_namespace(monkeypatch: pytest.MonkeyPatch) -> None:
-    """Keep CLI arguments from leaking between generations."""
+def reset_namespace(monkeypatch: pytest.MonkeyPatch) -> Iterator[None]:
+    """Keep CLI arguments and imported modules from leaking between generations."""
     namespace_ = Namespace(no_color=False)
     monkeypatch.setattr("datamodel_code_generator.__main__.namespace", namespace_)
     monkeypatch.setattr("datamodel_code_generator.arguments.namespace", namespace_)
+    yield
+    for name in IMPORTED_MODULES:
+        sys.modules.pop(name, None)
+    IMPORTED_MODULES.clear()
 
 
 def generate_module(tmp_path: Path, source: dict[str, Any] | str, *arguments: str) -> Path:
@@ -169,17 +177,28 @@ def import_package_module(output_directory: Path, module_name: str) -> Any:
 
 
 def import_module(output_file: Path, name: str) -> Any:
-    """Import a generated module by path, so unresolved names surface here."""
+    """Import a generated module by path, so unresolved names surface here.
+
+    The module stays registered until the test ends, so that a reference it
+    defers still resolves against its own namespace.
+    """
     specification = importlib.util.spec_from_file_location(name, output_file)
     assert specification is not None
     assert specification.loader is not None
     module = importlib.util.module_from_spec(specification)
     sys.modules[name] = module
-    try:
-        specification.loader.exec_module(module)
-        return module
-    finally:
-        del sys.modules[name]
+    IMPORTED_MODULES.append(name)
+    specification.loader.exec_module(module)
+    return module
+
+
+def assert_union_over_person_and_pet(module: Any, name: str) -> None:
+    """Check that a generated union alias validates both members and nothing else."""
+    adapter: TypeAdapter[Any] = TypeAdapter(getattr(module, name))
+    assert isinstance(adapter.validate_python(module.Person(name="a")), module.Person)
+    assert isinstance(adapter.validate_python(module.Pet(name="a")), module.Pet)
+    with pytest.raises(ValidationError):
+        adapter.validate_python(1)
 
 
 def test_recursive_alias_backport_imports_and_validates(tmp_path: Path) -> None:
@@ -248,7 +267,11 @@ def test_recursive_array_alias_keeps_its_item_type(tmp_path: Path) -> None:
 
 
 def test_recursive_type_statement_has_no_rebuild_call(tmp_path: Path) -> None:
-    """The Python 3.12 form defers evaluation and gets no model_rebuild call."""
+    """The Python 3.12 form defers evaluation and gets no model_rebuild call.
+
+    Older interpreters cannot execute the native statement, so they check the
+    emitted text alone.
+    """
     output_file = generate_module(
         tmp_path,
         RECURSIVE_SCHEMA,
@@ -261,6 +284,11 @@ def test_recursive_type_statement_has_no_rebuild_call(tmp_path: Path) -> None:
     assert "type Node = " in generated
     assert "Node.model_rebuild()" not in generated
     assert "Node.update_forward_refs()" not in generated
+    if sys.version_info >= (3, 12):
+        module = import_module(output_file, "eval_alias_recursive_native")
+        assert module.Root(tree=["a", ["b"]]).tree == ["a", ["b"]]
+        with pytest.raises(ValidationError):
+            module.Root(tree=1)
 
 
 def test_reuse_model_renders_duplicate_aliases(tmp_path: Path) -> None:
@@ -294,16 +322,13 @@ def test_reuse_model_imports_duplicate_graphql_unions(tmp_path: Path) -> None:
         "3.9",
     )
     module = import_module(output_file, "eval_alias_graphql_reuse")
-    assert module.Being is not None
-    assert module.Creature is not None
+    assert_union_over_person_and_pet(module, "Being")
+    assert_union_over_person_and_pet(module, "Creature")
 
 
-def test_reuse_model_renders_duplicate_graphql_unions_natively(tmp_path: Path) -> None:
-    """The Python 3.12 form names the reused union rather than a placeholder.
-
-    Native statements cannot be imported on older interpreters, so the
-    definition is checked through the emitted expression.
-    """
+@pytest.mark.skipif(sys.version_info < (3, 12), reason="The native type statement needs Python 3.12")
+def test_reuse_model_imports_duplicate_graphql_unions_natively(tmp_path: Path) -> None:
+    """The Python 3.12 form keeps every member of the reused union."""
     output_file = generate_module(
         tmp_path,
         DUPLICATE_UNION_GRAPHQL,
@@ -313,10 +338,9 @@ def test_reuse_model_renders_duplicate_graphql_unions_natively(tmp_path: Path) -
         "--target-python-version",
         "3.12",
     )
-    definition = next(
-        line for line in output_file.read_text(encoding="utf-8").splitlines() if line.startswith("type Creature")
-    )
-    assert "Being" in definition or "Person" in definition
+    module = import_module(output_file, "eval_alias_graphql_reuse_native")
+    assert_union_over_person_and_pet(module, "Being")
+    assert_union_over_person_and_pet(module, "Creature")
 
 
 def test_imported_alias_keeps_its_module_qualification(tmp_path: Path) -> None:
