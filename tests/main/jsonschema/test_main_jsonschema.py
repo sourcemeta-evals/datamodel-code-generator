@@ -2107,6 +2107,18 @@ def test_main_jsonschema_const_union_matches_equivalent_enum(
     assert outputs[0] == outputs[1]
 
 
+def test_main_jsonschema_oneof_const_nullable_pydantic_v2(output_file: Path) -> None:
+    """Test a nullable const union renders through the Pydantic v2 root model."""
+    run_main_and_assert(
+        input_path=JSON_SCHEMA_DATA_PATH / "oneof_const_enum_nullable.yaml",
+        output_path=output_file,
+        input_file_type="jsonschema",
+        assert_func=assert_file_content,
+        expected_file="oneof_const_nullable_pydantic_v2.py",
+        extra_args=["--output-model-type", "pydantic_v2.BaseModel"],
+    )
+
+
 def test_main_jsonschema_oneof_const_enum_infer_type(output_file: Path) -> None:
     """Test oneOf with const values and inferred type."""
     run_main_and_assert(
