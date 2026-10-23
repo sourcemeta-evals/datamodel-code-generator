@@ -2031,6 +2031,28 @@ def test_main_jsonschema_oneof_const_type_list_multi(output_file: Path) -> None:
     )
 
 
+def test_main_jsonschema_oneof_const_sibling_combinators(output_file: Path) -> None:
+    """Test a schema restricted by both combinators keeps its existing non-enum output."""
+    run_main_and_assert(
+        input_path=JSON_SCHEMA_DATA_PATH / "oneof_const_sibling_combinators.json",
+        output_path=output_file,
+        input_file_type="jsonschema",
+        assert_func=assert_file_content,
+        expected_file="oneof_const_sibling_combinators.py",
+    )
+
+
+def test_main_jsonschema_oneof_const_varnames(output_file: Path) -> None:
+    """Test the parent's x-enum-varnames still name the converted enum's members."""
+    run_main_and_assert(
+        input_path=JSON_SCHEMA_DATA_PATH / "oneof_const_varnames.json",
+        output_path=output_file,
+        input_file_type="jsonschema",
+        assert_func=assert_file_content,
+        expected_file="oneof_const_varnames.py",
+    )
+
+
 def test_main_jsonschema_oneof_const_enum_infer_type(output_file: Path) -> None:
     """Test oneOf with const values and inferred type."""
     run_main_and_assert(
