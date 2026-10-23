@@ -8,6 +8,7 @@ expressions, so an implementation stays free to organise its dispatch.
 
 from __future__ import annotations
 
+import ast
 import json
 from argparse import Namespace
 from typing import TYPE_CHECKING, Any
@@ -51,6 +52,20 @@ type Query {
 }
 """
 
+MSGSPEC_DEFAULT_SCHEMA: dict[str, Any] = {
+    "$schema": "http://json-schema.org/draft-07/schema#",
+    "title": "Holder",
+    "type": "object",
+    "properties": {
+        "codes": {"type": "array", "items": {"$ref": "#/definitions/CodeA"}, "default": ["seed"]},
+        "others": {"type": "array", "items": {"$ref": "#/definitions/CodeB"}, "default": ["seed"]},
+    },
+    "definitions": {
+        "CodeA": {"type": "string", "pattern": "^[a-z]+$"},
+        "CodeB": {"type": "string", "pattern": "^[a-z]+$"},
+    },
+}
+
 NULLABLE_ARRAY_OPENAPI = """openapi: 3.0.0
 info:
   title: Nullable array alias
@@ -89,11 +104,11 @@ def skip_unless_black_supports(target: str) -> None:
         pytest.skip(f"Installed black doesn't support Python version {target}")
 
 
-def generate(tmp_path: Path, output_model: str, target: str, *arguments: str) -> str:
-    """Generate from the JSON Schema fixture and return the output."""
+def generate_schema(tmp_path: Path, schema: dict[str, Any], output_model: str, target: str, *arguments: str) -> str:
+    """Generate from an inline JSON Schema and return the output."""
     skip_unless_black_supports(target)
     input_file = tmp_path / "schema.json"
-    input_file.write_text(json.dumps(SCHEMA), encoding="utf-8")
+    input_file.write_text(json.dumps(schema), encoding="utf-8")
     output_file = tmp_path / "output.py"
     return_code: Exit = main([
         "--input",
@@ -110,6 +125,11 @@ def generate(tmp_path: Path, output_model: str, target: str, *arguments: str) ->
     ])
     assert return_code == Exit.OK
     return output_file.read_text(encoding="utf-8")
+
+
+def generate(tmp_path: Path, output_model: str, target: str, *arguments: str) -> str:
+    """Generate from the JSON Schema fixture and return the output."""
+    return generate_schema(tmp_path, SCHEMA, output_model, target, *arguments)
 
 
 def generate_graphql(tmp_path: Path, output_model: str, target: str, *arguments: str) -> str:
@@ -156,6 +176,31 @@ def generate_openapi(tmp_path: Path, source: str, output_model: str, target: str
     ])
     assert return_code == Exit.OK
     return output_file.read_text(encoding="utf-8")
+
+
+def struct_field_default(generated: str, model: str, field_name: str) -> ast.expr | None:
+    """Return the default expression of a Struct field, however it is wrapped."""
+    for node in ast.walk(ast.parse(generated)):
+        if isinstance(node, ast.ClassDef) and node.name == model:
+            for statement in node.body:
+                if (
+                    isinstance(statement, ast.AnnAssign)
+                    and isinstance(statement.target, ast.Name)
+                    and statement.target.id == field_name
+                ):
+                    return statement.value
+    message = f"no field {field_name} on {model} in:\n{generated}"
+    raise AssertionError(message)
+
+
+def is_conversion_factory(default: ast.expr | None) -> bool:
+    """Return whether a default is a msgspec ``field()`` call carrying a factory."""
+    return (
+        isinstance(default, ast.Call)
+        and isinstance(default.func, ast.Name)
+        and default.func.id == "field"
+        and any(keyword.arg == "default_factory" for keyword in default.keywords)
+    )
 
 
 def imports_from_typing_extensions(generated: str, name: str) -> bool:
@@ -292,3 +337,18 @@ def test_nullable_array_alias_keeps_its_length_constraints(tmp_path: Path) -> No
     definition = alias_definition(generated, "Tags")
     assert "min_length=1" in definition
     assert "max_length=2" in definition
+
+
+@pytest.mark.parametrize("arguments", [(), ("--reuse-model",)], ids=["reuse-off", "reuse-on"])
+def test_msgspec_list_defaults_stay_conversion_factories(arguments: tuple[str, ...], tmp_path: Path) -> None:
+    """A msgspec list default stays a conversion factory when aliases are enabled.
+
+    msgspec rejects a mutable default on a Struct field, so a bare list makes the
+    generated module impossible to import. Reuse is only exercised with the flag,
+    because the base commit cannot generate this schema with ``--reuse-model``.
+    """
+    generated = generate_schema(
+        tmp_path, MSGSPEC_DEFAULT_SCHEMA, "msgspec.Struct", "3.9", "--use-type-alias", *arguments
+    )
+    for field_name in ("codes", "others"):
+        assert is_conversion_factory(struct_field_default(generated, "Holder", field_name)), generated
