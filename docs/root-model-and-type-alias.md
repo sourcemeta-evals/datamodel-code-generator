@@ -8,6 +8,7 @@ When a schema defines a simple type (not an object with properties), `datamodel-
 - RootModel and type aliases do not fully support field-specific metadata (default, alias, etc). See https://docs.pydantic.dev/latest/concepts/types/#named-type-aliases for details.
 - Type aliases do not support some RootModel features (e.g. `model_config`)
 - A RootModel or type alias is also generated for the main schema, allowing you to define a single type alias from a schema file (e.g. `model.json` containing `{"title": "MyString", "type": "string"}`)
+- Pydantic v1 resolves a type alias while it builds a model that uses it, so a model whose field refers to a recursive alias raises `RecursionError`. Recursive schemas need Pydantic v2 output, which defers the reference
 
 ## Non-Pydantic output and GraphQL
 
