@@ -209,16 +209,14 @@ def import_module(output_file: Path, name: str) -> Any:
     return module
 
 
-def alias_definition(generated: str, name: str) -> str:
-    """Return the definition of the alias ``name`` on one line, however it is wrapped."""
-    lines = generated.splitlines()
-    starts = [index for index, line in enumerate(lines) if line.startswith((f"{name} ", f"{name}:", f"type {name} "))]
-    assert starts, f"no definition of {name} in:\n{generated}"
-    start = starts[0]
-    end = start + 1
-    while end < len(lines) and lines[end].startswith((" ", ")", "]")):
-        end += 1
-    return " ".join(line.strip() for line in lines[start:end])
+def alias_value(generated: str, name: str) -> ast.expr:
+    """Return the parsed right-hand side of the annotated alias ``name``."""
+    for node in ast.walk(ast.parse(generated)):
+        if isinstance(node, ast.AnnAssign) and isinstance(node.target, ast.Name) and node.target.id == name:
+            assert node.value is not None
+            return node.value
+    message = f"no annotated definition of {name} in:\n{generated}"
+    raise AssertionError(message)
 
 
 def alias_defers_its_self_reference(generated: str, name: str) -> bool:
@@ -228,12 +226,28 @@ def alias_defers_its_self_reference(generated: str, name: str) -> bool:
     self-reference; an unquoted ``List[Node]`` evaluates it during assignment and
     raises ``NameError`` on import.
     """
-    for node in ast.walk(ast.parse(generated)):
-        if isinstance(node, ast.AnnAssign) and isinstance(node.target, ast.Name) and node.target.id == name:
-            assert node.value is not None
-            return not any(isinstance(child, ast.Name) and child.id == name for child in ast.walk(node.value))
-    message = f"no annotated definition of {name} in:\n{generated}"
-    raise AssertionError(message)
+    return not any(isinstance(child, ast.Name) and child.id == name for child in ast.walk(alias_value(generated, name)))
+
+
+def alias_reference_names(generated: str, name: str) -> set[str]:
+    """Return the names an alias refers to, reading deferred references out of their strings.
+
+    ``Union[str, List["Node"]]`` and ``"Union[str, List[Node]]"`` both refer to
+    ``str`` and ``Node``, so dropping either branch is visible whichever form a
+    solution emits. A string that is not an expression, such as a description,
+    contributes nothing.
+    """
+    referenced: set[str] = set()
+    for node in ast.walk(alias_value(generated, name)):
+        if isinstance(node, ast.Name):
+            referenced.add(node.id)
+        elif isinstance(node, ast.Constant) and isinstance(node.value, str):
+            try:
+                deferred = ast.parse(node.value, mode="eval")
+            except SyntaxError:
+                continue
+            referenced |= {child.id for child in ast.walk(deferred) if isinstance(child, ast.Name)}
+    return referenced
 
 
 def assert_union_over_person_and_pet(module: Any, name: str) -> None:
@@ -262,11 +276,13 @@ def test_recursive_alias_backport_imports_and_validates(tmp_path: Path) -> None:
         module.Root(tree=1)
 
 
-def test_recursive_alias_annotation_quotes_its_self_reference(tmp_path: Path) -> None:
-    """The annotation form defers its self-reference so the module can import.
+def test_recursive_alias_annotation_defers_its_self_reference(tmp_path: Path) -> None:
+    """The annotation form keeps both branches and defers its self-reference.
 
     Pydantic v1 output cannot be executed against the installed Pydantic v2, so
-    this path is checked through the emitted expression.
+    this path is checked through the emitted expression. A solution that replaces
+    the recursive branch with a scalar leaves an alias that imports but no longer
+    describes the schema.
     """
     output_file = generate_module(
         tmp_path,
@@ -277,7 +293,7 @@ def test_recursive_alias_annotation_quotes_its_self_reference(tmp_path: Path) ->
         "3.9",
     )
     generated = output_file.read_text(encoding="utf-8")
-    assert "Node" in alias_definition(generated, "Node")
+    assert {"str", "Node"} <= alias_reference_names(generated, "Node")
     assert alias_defers_its_self_reference(generated, "Node")
 
 
