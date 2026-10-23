@@ -38,7 +38,13 @@ Below are the data types and features recognized by datamodel-code-generator for
 ### Other schema
 - enum (as enum.Enum or typing.Literal)
 - allOf (as Multiple inheritance)
-- anyOf (as typing.Union)
-- oneOf (as typing.Union)
+- anyOf (as typing.Union, or as enum.Enum when every member is a const)
+- oneOf (as typing.Union, or as enum.Enum when every member is a const)
 - $ref ([http extra](../#http-extra-option) is required when resolving $ref for remote files.)
 - $id (for [JSONSchema](https://json-schema.org/understanding-json-schema/structuring.html#id))
+
+An `anyOf` or `oneOf` whose members are all `const` restricts a value to a
+fixed set, so it generates the same model as the equivalent `enum` schema
+rather than an unrestricted union. `--enum-field-as-literal` applies to it as
+it does to any other enum. A union that mixes `const` members with other
+forms, such as a `$ref` or a nested combinator, keeps its union output.

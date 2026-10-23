@@ -2075,6 +2075,40 @@ def test_main_jsonschema_oneof_const_type_list_branch_const(output_file: Path) -
     )
 
 
+@pytest.mark.parametrize("literal_args", [[], ["--enum-field-as-literal", "all"]])
+@pytest.mark.parametrize("keyword", ["oneOf", "anyOf"])
+def test_main_jsonschema_const_union_matches_equivalent_enum(
+    keyword: str, literal_args: list[str], tmp_path: Path
+) -> None:
+    """Test a const union generates exactly what the equivalent enum schema generates."""
+    outputs = []
+    for value_schema in (
+        {keyword: [{"const": "npm"}, {"const": "yarn"}]},
+        {"enum": ["npm", "yarn"]},
+    ):
+        schema = tmp_path / "schema.json"
+        schema.write_text(
+            json.dumps({"title": "Mode", "type": "string", **value_schema}), encoding="utf-8"
+        )
+        output = tmp_path / "model.py"
+        assert (
+            main([
+                "--input",
+                str(schema),
+                "--output",
+                str(output),
+                "--input-file-type",
+                "jsonschema",
+                "--disable-timestamp",
+                *literal_args,
+            ])
+            == Exit.OK
+        )
+        outputs.append(output.read_text(encoding="utf-8"))
+
+    assert outputs[0] == outputs[1]
+
+
 def test_main_jsonschema_oneof_const_enum_infer_type(output_file: Path) -> None:
     """Test oneOf with const values and inferred type."""
     run_main_and_assert(
