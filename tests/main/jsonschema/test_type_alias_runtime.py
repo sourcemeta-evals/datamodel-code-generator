@@ -276,13 +276,15 @@ def test_recursive_alias_backport_imports_and_validates(tmp_path: Path) -> None:
         module.Root(tree=1)
 
 
+@pytest.mark.filterwarnings("ignore::UserWarning")
 def test_recursive_alias_annotation_defers_its_self_reference(tmp_path: Path) -> None:
     """The annotation form keeps both branches and defers its self-reference.
 
-    Pydantic v1 output cannot be executed against the installed Pydantic v2, so
-    this path is checked through the emitted expression. A solution that replaces
-    the recursive branch with a scalar leaves an alias that imports but no longer
-    describes the schema.
+    Pydantic v1 resolves the alias while building a model that uses it, so it
+    cannot validate a recursive one whichever form the alias takes; generating
+    this combination may warn. The emitted expression is checked instead. A
+    solution that replaces the recursive branch with a scalar leaves an alias
+    that imports but no longer describes the schema.
     """
     output_file = generate_module(
         tmp_path,
