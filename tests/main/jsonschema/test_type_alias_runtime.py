@@ -50,7 +50,7 @@ LITERAL_RECURSIVE_SCHEMA: dict[str, Any] = {
     "definitions": {
         "Node": {
             "anyOf": [
-                {"type": "string", "enum": ["a Node value", "other"]},
+                {"type": "string", "enum": ["a Node value", 'It\'s a Node "value"', "other"]},
                 {"type": "array", "items": {"$ref": "#/definitions/Node"}},
             ]
         }
@@ -370,6 +370,9 @@ def test_recursive_alias_keeps_its_literal_values(tmp_path: Path) -> None:
 
     Deferring the self-reference by rewriting the rendered type hint reaches the
     literal as well, which narrows the alias to a value the schema never declared.
+    A value carrying both quote characters is rendered with an escaped delimiter,
+    so skipping literals with a pattern that stops at the escape reaches the name
+    inside one and emits an expression that cannot be parsed.
     """
     output_file = generate_module(
         tmp_path,
@@ -382,7 +385,8 @@ def test_recursive_alias_keeps_its_literal_values(tmp_path: Path) -> None:
         "all",
     )
     module = import_module(output_file, "eval_alias_recursive_literal")
-    assert module.Root(tree=["a Node value", ["other"]]).tree == ["a Node value", ["other"]]
+    values = ["a Node value", ['It\'s a Node "value"', ["other"]]]
+    assert module.Root(tree=values).tree == values
     with pytest.raises(ValidationError):
         module.Root(tree='a "Node" value')
 
