@@ -57,6 +57,21 @@ LITERAL_RECURSIVE_SCHEMA: dict[str, Any] = {
     },
 }
 
+UNICODE_RECURSIVE_SCHEMA: dict[str, Any] = {
+    "$schema": "http://json-schema.org/draft-07/schema#",
+    "title": "Root",
+    "type": "object",
+    "properties": {"etage": {"$ref": "#/definitions/Étage"}},
+    "definitions": {
+        "Étage": {
+            "anyOf": [
+                {"type": "string"},
+                {"type": "array", "items": {"$ref": "#/definitions/Étage"}},
+            ]
+        }
+    },
+}
+
 MUTUAL_SCHEMA: dict[str, Any] = {
     "$schema": "http://json-schema.org/draft-07/schema#",
     "title": "Root",
@@ -370,6 +385,28 @@ def test_recursive_alias_keeps_its_literal_values(tmp_path: Path) -> None:
     assert module.Root(tree=["a Node value", ["other"]]).tree == ["a Node value", ["other"]]
     with pytest.raises(ValidationError):
         module.Root(tree='a "Node" value')
+
+
+def test_recursive_alias_defers_a_non_ascii_self_reference(tmp_path: Path) -> None:
+    """A recursive alias keeps deferring its self-reference when its name is not ASCII.
+
+    ``FieldNameResolver.get_valid_name()`` keeps letters outside ASCII, so this
+    schema is rendered as an alias named ``Étage``. Deferring the reference by
+    matching an ASCII-only identifier pattern against the rendered type hint
+    leaves the name evaluated during assignment, which raises ``NameError``.
+    """
+    output_file = generate_module(
+        tmp_path,
+        UNICODE_RECURSIVE_SCHEMA,
+        "--output-model-type",
+        "pydantic_v2.BaseModel",
+        "--target-python-version",
+        "3.9",
+    )
+    module = import_module(output_file, "eval_alias_recursive_unicode")
+    assert module.Root(etage=["a", ["b"]]).etage == ["a", ["b"]]
+    with pytest.raises(ValidationError):
+        module.Root(etage=1)
 
 
 def test_mutually_recursive_aliases_import_and_validate(tmp_path: Path) -> None:
