@@ -8,6 +8,7 @@ what the task requires.
 
 from __future__ import annotations
 
+import ast
 import importlib.util
 import json
 import sys
@@ -220,6 +221,21 @@ def alias_definition(generated: str, name: str) -> str:
     return " ".join(line.strip() for line in lines[start:end])
 
 
+def alias_defers_its_self_reference(generated: str, name: str) -> bool:
+    """Return whether the alias names itself only inside a string.
+
+    Both ``Union[str, List["Node"]]`` and ``"Union[str, List[Node]]"`` defer the
+    self-reference; an unquoted ``List[Node]`` evaluates it during assignment and
+    raises ``NameError`` on import.
+    """
+    for node in ast.walk(ast.parse(generated)):
+        if isinstance(node, ast.AnnAssign) and isinstance(node.target, ast.Name) and node.target.id == name:
+            assert node.value is not None
+            return not any(isinstance(child, ast.Name) and child.id == name for child in ast.walk(node.value))
+    message = f"no annotated definition of {name} in:\n{generated}"
+    raise AssertionError(message)
+
+
 def assert_union_over_person_and_pet(module: Any, name: str) -> None:
     """Check that a generated union alias validates both members and nothing else."""
     adapter: TypeAdapter[Any] = TypeAdapter(getattr(module, name))
@@ -246,7 +262,7 @@ def test_recursive_alias_backport_imports_and_validates(tmp_path: Path) -> None:
 
 
 def test_recursive_alias_annotation_quotes_its_self_reference(tmp_path: Path) -> None:
-    """The annotation form quotes its self-reference so the module can import.
+    """The annotation form defers its self-reference so the module can import.
 
     Pydantic v1 output cannot be executed against the installed Pydantic v2, so
     this path is checked through the emitted expression.
@@ -259,8 +275,9 @@ def test_recursive_alias_annotation_quotes_its_self_reference(tmp_path: Path) ->
         "--target-python-version",
         "3.9",
     )
-    definition = alias_definition(output_file.read_text(encoding="utf-8"), "Node")
-    assert '"Node"' in definition or "'Node'" in definition
+    generated = output_file.read_text(encoding="utf-8")
+    assert "Node" in alias_definition(generated, "Node")
+    assert alias_defers_its_self_reference(generated, "Node")
 
 
 def test_mutually_recursive_aliases_import_and_validate(tmp_path: Path) -> None:
