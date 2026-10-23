@@ -735,7 +735,7 @@ class JsonSchemaParser(Parser):
         """Extract enum values from oneOf/anyOf const pattern."""
         enum_values: list[Any] = []
         nullable = False
-        inferred_type: str | None = None
+        inferred_types: set[str] = set()
 
         for item in items:
             if item.type == "null" and "const" not in item.extras:
@@ -757,18 +757,24 @@ class JsonSchemaParser(Parser):
             const_value = item.extras["const"]
             enum_values.append(const_value)
 
-            if inferred_type is None and const_value is not None:
+            if const_value is not None:
                 if isinstance(const_value, str):
-                    inferred_type = "string"
+                    inferred_types.add("string")
                 elif isinstance(const_value, bool):
-                    inferred_type = "boolean"
+                    inferred_types.add("boolean")
                 elif isinstance(const_value, int):
-                    inferred_type = "integer"
+                    inferred_types.add("integer")
                 elif isinstance(const_value, float):
-                    inferred_type = "number"
+                    inferred_types.add("number")
+                else:
+                    inferred_types.add("other")
 
         if not enum_values:  # pragma: no cover
             return None
+
+        inferred_type = inferred_types.pop() if len(inferred_types) == 1 else None
+        if inferred_type == "other":
+            inferred_type = None
 
         final_type: str | None
         if isinstance(parent_type, str):
@@ -792,13 +798,16 @@ class JsonSchemaParser(Parser):
     ) -> JsonSchemaObject:
         """Create a synthetic JsonSchemaObject for enum parsing."""
         final_enum = [*enum_values, None] if nullable else enum_values
+        # `type` is omitted rather than passed as None, because the field's
+        # validator rewrites a None type to the string "null"
+        optional_type = {"type": enum_type} if enum_type is not None else {}
 
         return self.SCHEMA_OBJECT_TYPE(
-            type=enum_type,
             enum=final_enum,
             title=original.title,
             description=original.description,
             default=original.default if original.has_default else None,
+            **optional_type,
         )
 
     def is_constraints_field(self, obj: JsonSchemaObject) -> bool:
