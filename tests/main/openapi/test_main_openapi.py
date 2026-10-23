@@ -56,6 +56,17 @@ def test_main(output_file: Path) -> None:
     )
 
 
+def test_main_openapi_oneof_const_enum(output_file: Path) -> None:
+    """Test a const-only oneOf component generates an enum the referencing property reuses."""
+    run_main_and_assert(
+        input_path=OPEN_API_DATA_PATH / "oneof_const_enum.yaml",
+        output_path=output_file,
+        input_file_type="openapi",
+        assert_func=assert_file_content,
+        expected_file="oneof_const_enum.py",
+    )
+
+
 @pytest.mark.skipif(
     black.__version__.split(".")[0] == "19",
     reason="Installed black doesn't support the old style",
