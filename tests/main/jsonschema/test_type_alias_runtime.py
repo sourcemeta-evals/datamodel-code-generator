@@ -108,6 +108,23 @@ PACKAGE_MAIN: dict[str, Any] = {
     "definitions": {"Codes": {"type": "array", "items": {"$ref": "common.json#/definitions/Code"}}},
 }
 
+NULLABLE_SCALAR_OPENAPI = """openapi: 3.0.0
+info:
+  title: Nullable scalar alias
+  version: 1.0.0
+paths: {}
+components:
+  schemas:
+    Nickname:
+      type: string
+      nullable: true
+    Holder:
+      type: object
+      properties:
+        nickname:
+          $ref: '#/components/schemas/Nickname'
+"""
+
 DUPLICATE_UNION_GRAPHQL = """
 type Person {
   name: String
@@ -164,6 +181,25 @@ def generate_module(tmp_path: Path, source: dict[str, Any] | str, *arguments: st
         str(input_file),
         "--input-file-type",
         input_file_type,
+        "--output",
+        str(output_file),
+        "--use-type-alias",
+        *arguments,
+    ])
+    assert return_code == Exit.OK
+    return output_file
+
+
+def generate_openapi_module(tmp_path: Path, source: str, *arguments: str) -> Path:
+    """Generate a module from an inline OpenAPI document and return the output path."""
+    input_file = tmp_path / "api.yaml"
+    input_file.write_text(source, encoding="utf-8")
+    output_file = tmp_path / "output.py"
+    return_code: Exit = main([
+        "--input",
+        str(input_file),
+        "--input-file-type",
+        "openapi",
         "--output",
         str(output_file),
         "--use-type-alias",
@@ -469,6 +505,29 @@ def test_constrained_alias_validates_a_call_argument(tmp_path: Path) -> None:
     assert checked("ok") == "ok"
     with pytest.raises(ValidationError):
         checked("too long")
+
+
+def test_nullable_scalar_alias_imports_with_strict_nullable(tmp_path: Path) -> None:
+    """A nullable scalar alias imports and accepts both a string and ``None``.
+
+    An unconstrained root declares no metadata, so an alias that renders a field
+    expression for it anyway has to import every name that expression uses. The
+    constrained cases cannot show this up, because their own metadata already
+    brings that import with it.
+    """
+    output_file = generate_openapi_module(
+        tmp_path,
+        NULLABLE_SCALAR_OPENAPI,
+        "--strict-nullable",
+        "--output-model-type",
+        "pydantic_v2.BaseModel",
+        "--target-python-version",
+        "3.9",
+    )
+    module = import_module(output_file, "eval_alias_nullable_scalar")
+    adapter = TypeAdapter(module.Nickname)
+    assert adapter.validate_python(None) is None
+    assert adapter.validate_python("abc") == "abc"
 
 
 def test_imported_alias_keeps_its_module_qualification(tmp_path: Path) -> None:
