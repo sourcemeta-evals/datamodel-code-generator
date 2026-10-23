@@ -462,6 +462,25 @@ EXCLUDE_FIELD_KEYS = (
     JsonSchemaObject.__extra_key__,
 }
 
+# Keys a `oneOf`/`anyOf` branch may carry while still being read as a fixed
+# value or as a null alternative. They describe the branch rather than restrict
+# what it admits. Anything else, including an unmodelled keyword left in
+# `extras`, governs what the branch admits, so the union falls back instead of
+# guessing which keyword wins. Branch keys are matched against both the set
+# fields and `extras`, since annotations are kept in both.
+CONST_BRANCH_ANNOTATION_KEYS: set[str] = {
+    "const",
+    "default",
+    "description",
+    "example",
+    "examples",
+    "extras",
+    "readOnly",
+    "title",
+    "type",
+    "writeOnly",
+}
+
 
 @snooper_to_methods()  # noqa: PLR0904
 class JsonSchemaParser(Parser):
@@ -729,6 +748,15 @@ class JsonSchemaParser(Parser):
         )
 
     @classmethod
+    def _is_plain_const_branch(cls, item: JsonSchemaObject) -> bool:
+        """Check whether a branch restricts its value by nothing beyond `const`, `type` and `enum: [null]`."""
+        if item.__fields_set__ - CONST_BRANCH_ANNOTATION_KEYS - {"enum"}:
+            return False
+        if item.enum and item.enum != [None]:
+            return False
+        return not set(item.extras) - CONST_BRANCH_ANNOTATION_KEYS
+
+    @classmethod
     def _extract_const_enum_from_combined(
         cls, items: list[JsonSchemaObject], parent_type: str | list[str] | None
     ) -> tuple[list[Any], str | list[str] | None, bool] | None:
@@ -737,29 +765,33 @@ class JsonSchemaParser(Parser):
         nullable = False
 
         for item in items:
-            # Checked before the null shortcut below: a branch carrying any of
-            # these is governed by them rather than by a sibling `type: "null"`,
-            # so it is not a plain null alternative and the union must fall back.
-            if item.ref is not None or item.properties is not None or item.oneOf or item.anyOf or item.allOf:
+            if not cls._is_plain_const_branch(item):
                 return None
 
-            # `type: ["null"]` spells the same alternative as `type: "null"`,
-            # which `type_has_null` already treats alike.
+            # Every spelling of an alternative that admits nothing but null is
+            # the same alternative, including `type: ["null"]`, which
+            # `type_has_null` already treats like the scalar spelling. Such a
+            # branch marks the enum nullable rather than contributing a value
+            # the enum has to carry.
             item_type = item.type[0] if isinstance(item.type, list) and len(item.type) == 1 else item.type
-            if item_type == "null" and "const" not in item.extras:
-                nullable = True
-                continue
+            admits_only_null = item_type == "null" or item.enum == [None]
 
             if "const" not in item.extras:
-                return None
+                if not admits_only_null:
+                    return None
+                nullable = True
+                continue
 
             const_value = item.extras["const"]
             if const_value is None:
-                # `const: null` admits nothing but null, exactly as
-                # `type: "null"` does, so it is the same alternative and not a
-                # value the enum has to carry.
                 nullable = True
                 continue
+            if admits_only_null:
+                # A branch admitting nothing but null, beside a `const` that is
+                # not null, admits nothing at all. It is not a fixed value, so
+                # the union falls back rather than carrying a value the branch
+                # itself forbids.
+                return None
             enum_values.append(const_value)
 
         if not enum_values and not nullable:  # pragma: no cover
@@ -771,13 +803,13 @@ class JsonSchemaParser(Parser):
         # It is also left as written, including a list, because an equivalent
         # `enum` schema carrying the same list renders unspecialised.
         final_type: str | list[str] | None = parent_type
-        if isinstance(parent_type, list) and "null" in parent_type:
+        if isinstance(parent_type, list):
             non_null_types = [t for t in parent_type if t != "null"]
-            if non_null_types == ["string"]:
-                # `type: [string, "null"]` is the one list a nullable enum is
-                # spelled as a scalar instead, because parse_enum drops a null
-                # member from a string enum and marks the enum nullable in its
-                # place. Collapsing it is what renders such a schema as a
+            if non_null_types == ["string"] and (nullable or "null" in parent_type):
+                # A nullable string enum is spelled as a scalar type whatever
+                # the schema's own list spelling is, because parse_enum drops a
+                # null member from a string enum and marks the enum nullable in
+                # its place. Collapsing it is what renders such a schema as a
                 # nullable string enum rather than an unspecialised one.
                 nullable = True
                 final_type = "string"
