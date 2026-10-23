@@ -30,10 +30,11 @@ RECURSIVE_SCHEMA: dict[str, Any] = {
     "properties": {"tree": {"$ref": "#/definitions/Node"}},
     "definitions": {
         "Node": {
+            "description": "A Node value",
             "anyOf": [
                 {"type": "string"},
                 {"type": "array", "items": {"$ref": "#/definitions/Node"}},
-            ]
+            ],
         }
     },
 }
@@ -192,6 +193,18 @@ def import_module(output_file: Path, name: str) -> Any:
     return module
 
 
+def alias_definition(generated: str, name: str) -> str:
+    """Return the definition of the alias ``name`` on one line, however it is wrapped."""
+    lines = generated.splitlines()
+    starts = [index for index, line in enumerate(lines) if line.startswith((f"{name} ", f"{name}:", f"type {name} "))]
+    assert starts, f"no definition of {name} in:\n{generated}"
+    start = starts[0]
+    end = start + 1
+    while end < len(lines) and lines[end].startswith((" ", ")", "]")):
+        end += 1
+    return " ".join(line.strip() for line in lines[start:end])
+
+
 def assert_union_over_person_and_pet(module: Any, name: str) -> None:
     """Check that a generated union alias validates both members and nothing else."""
     adapter: TypeAdapter[Any] = TypeAdapter(getattr(module, name))
@@ -231,7 +244,7 @@ def test_recursive_alias_annotation_quotes_its_self_reference(tmp_path: Path) ->
         "--target-python-version",
         "3.9",
     )
-    definition = next(line for line in output_file.read_text(encoding="utf-8").splitlines() if line.startswith("Node"))
+    definition = alias_definition(output_file.read_text(encoding="utf-8"), "Node")
     assert '"Node"' in definition or "'Node'" in definition
 
 
