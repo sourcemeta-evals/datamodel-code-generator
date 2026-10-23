@@ -2087,9 +2087,7 @@ def test_main_jsonschema_const_union_matches_equivalent_enum(
         {"enum": ["npm", "yarn"]},
     ):
         schema = tmp_path / "schema.json"
-        schema.write_text(
-            json.dumps({"title": "Mode", "type": "string", **value_schema}), encoding="utf-8"
-        )
+        schema.write_text(json.dumps({"title": "Mode", "type": "string", **value_schema}), encoding="utf-8")
         output = tmp_path / "model.py"
         assert (
             main([
