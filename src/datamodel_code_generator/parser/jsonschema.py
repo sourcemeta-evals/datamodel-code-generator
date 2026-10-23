@@ -729,13 +729,12 @@ class JsonSchemaParser(Parser):
         )
 
     @classmethod
-    def _extract_const_enum_from_combined(  # noqa: PLR0912
+    def _extract_const_enum_from_combined(
         cls, items: list[JsonSchemaObject], parent_type: str | list[str] | None
     ) -> tuple[list[Any], str | None, bool] | None:
         """Extract enum values from oneOf/anyOf const pattern."""
         enum_values: list[Any] = []
         nullable = False
-        inferred_types: set[str] = set()
 
         for item in items:
             # Checked before the null shortcut below: a branch carrying any of
@@ -760,35 +759,26 @@ class JsonSchemaParser(Parser):
             const_value = item.extras["const"]
             enum_values.append(const_value)
 
-            if const_value is not None:
-                if isinstance(const_value, str):
-                    inferred_types.add("string")
-                elif isinstance(const_value, bool):
-                    inferred_types.add("boolean")
-                elif isinstance(const_value, int):
-                    inferred_types.add("integer")
-                elif isinstance(const_value, float):
-                    inferred_types.add("number")
-                else:
-                    inferred_types.add("other")
-
         if not enum_values:  # pragma: no cover
             return None
 
-        inferred_type = inferred_types.pop() if len(inferred_types) == 1 else None
-        if inferred_type == "other":
-            inferred_type = None
-
+        # The schema's own `type` governs, exactly as it would for an equivalent
+        # `enum` schema. A type is never inferred from the const values, because
+        # that would make a const union render differently from that equivalent.
         final_type: str | None
         if isinstance(parent_type, str):
             final_type = parent_type
         elif isinstance(parent_type, list):
             non_null_types = [t for t in parent_type if t != "null"]
-            final_type = non_null_types[0] if non_null_types else inferred_type
+            # A single remaining type governs, which is what makes
+            # `type: [string, "null"]` behave as a nullable string enum. Several
+            # remaining types are left unspecialised, because picking one would
+            # specialise the enum on a type its values need not satisfy.
+            final_type = non_null_types[0] if len(non_null_types) == 1 else None
             if "null" in parent_type:
                 nullable = True
         else:
-            final_type = inferred_type
+            final_type = None
 
         return (enum_values, final_type, nullable)
 

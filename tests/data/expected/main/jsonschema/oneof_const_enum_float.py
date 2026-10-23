@@ -8,6 +8,6 @@ from enum import Enum
 
 
 class Ratio(Enum):
-    number_0_5 = 0.5
-    number_1_0 = 1.0
-    number_1_5 = 1.5
+    float_0_5 = 0.5
+    float_1_0 = 1.0
+    float_1_5 = 1.5

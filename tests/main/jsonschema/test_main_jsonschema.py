@@ -2020,6 +2020,17 @@ def test_main_jsonschema_oneof_const_type_list_branch(output_file: Path) -> None
     )
 
 
+def test_main_jsonschema_oneof_const_type_list_multi(output_file: Path) -> None:
+    """Test a parent type list with several non-null types leaves the enum unspecialised."""
+    run_main_and_assert(
+        input_path=JSON_SCHEMA_DATA_PATH / "oneof_const_type_list_multi.json",
+        output_path=output_file,
+        input_file_type="jsonschema",
+        assert_func=assert_file_content,
+        expected_file="oneof_const_type_list_multi.py",
+    )
+
+
 def test_main_jsonschema_oneof_const_enum_infer_type(output_file: Path) -> None:
     """Test oneOf with const values and inferred type."""
     run_main_and_assert(

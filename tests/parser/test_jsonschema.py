@@ -922,37 +922,10 @@ def test_extract_const_enum_empty_properties_sibling_rejects_pure_const() -> Non
     assert result is None
 
 
-def test_extract_const_enum_type_inference_for_string() -> None:
-    """String const values infer the string type when parent type is absent."""
+def test_extract_const_enum_leaves_absent_parent_type_absent() -> None:
+    """No type is inferred from const values when the parent schema declares none."""
     items = [_make_const_obj("a"), _make_const_obj("b")]
     result = JsonSchemaParser._extract_const_enum_from_combined(items, None)
     assert result is not None
     _, final_type, _ = result
-    assert final_type == "string"
-
-
-def test_extract_const_enum_type_inference_for_integer() -> None:
-    """Integer const values infer the integer type when parent type is absent."""
-    items = [_make_const_obj(1), _make_const_obj(2)]
-    result = JsonSchemaParser._extract_const_enum_from_combined(items, None)
-    assert result is not None
-    _, final_type, _ = result
-    assert final_type == "integer"
-
-
-def test_extract_const_enum_type_inference_for_bool_checked_before_int() -> None:
-    """Boolean const values must infer boolean, not integer (bool is a subclass of int)."""
-    items = [_make_const_obj(True), _make_const_obj(False)]
-    result = JsonSchemaParser._extract_const_enum_from_combined(items, None)
-    assert result is not None
-    _, final_type, _ = result
-    assert final_type == "boolean"
-
-
-def test_extract_const_enum_type_inference_for_float() -> None:
-    """Float const values infer the number type when parent type is absent."""
-    items = [_make_const_obj(0.5), _make_const_obj(1.5)]
-    result = JsonSchemaParser._extract_const_enum_from_combined(items, None)
-    assert result is not None
-    _, final_type, _ = result
-    assert final_type == "number"
+    assert final_type is None
