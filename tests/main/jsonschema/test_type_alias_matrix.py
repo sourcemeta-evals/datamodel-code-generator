@@ -203,9 +203,15 @@ def is_conversion_factory(default: ast.expr | None) -> bool:
     )
 
 
-def imports_from_typing_extensions(generated: str, name: str) -> bool:
-    """Return whether ``name`` is imported from ``typing_extensions``."""
-    return any(line.startswith("from typing_extensions import") and name in line for line in generated.splitlines())
+def import_sources(generated: str, name: str) -> set[str]:
+    """Return the modules ``name`` is imported from."""
+    return {
+        node.module
+        for node in ast.walk(ast.parse(generated))
+        if isinstance(node, ast.ImportFrom) and node.module is not None
+        for alias in node.names
+        if alias.name == name
+    }
 
 
 def alias_definition(generated: str, name: str) -> str:
@@ -228,7 +234,7 @@ def test_pydantic_v1_python_39_uses_the_backport_annotation(tmp_path: Path) -> N
     """Pydantic v1 on Python 3.9 annotates with the typing_extensions backport."""
     generated = generate(tmp_path, "pydantic.BaseModel", "3.9", "--use-type-alias")
     assert "SimpleString: TypeAlias = str" in generated
-    assert "from typing_extensions import TypeAlias" in generated
+    assert import_sources(generated, "TypeAlias") == {"typing_extensions"}
     assert "TypeAliasType(" not in generated
     assert "type SimpleString" not in generated
 
@@ -238,7 +244,7 @@ def test_pydantic_v1_keeps_annotations_on_newer_targets(target: str, tmp_path: P
     """Pydantic v1 annotates on every target, taking TypeAlias from typing after 3.9."""
     generated = generate(tmp_path, "pydantic.BaseModel", target, "--use-type-alias")
     assert "SimpleString: TypeAlias = str" in generated
-    assert "from typing_extensions import TypeAlias" not in generated
+    assert import_sources(generated, "TypeAlias") == {"typing"}
     assert "TypeAliasType(" not in generated
     assert "type SimpleString" not in generated
 
@@ -248,7 +254,7 @@ def test_pydantic_v2_uses_the_type_alias_type_backport(target: str, tmp_path: Pa
     """Pydantic v2 before 3.12 constructs TypeAliasType from typing_extensions."""
     generated = generate(tmp_path, "pydantic_v2.BaseModel", target, "--use-type-alias")
     assert 'SimpleString = TypeAliasType("SimpleString", str)' in generated
-    assert "from typing_extensions import TypeAliasType" in generated
+    assert import_sources(generated, "TypeAliasType") == {"typing_extensions"}
     assert "type SimpleString" not in generated
 
 
@@ -265,7 +271,7 @@ def test_graphql_scalars_are_aliases_without_the_flag(tmp_path: Path) -> None:
     for arguments in ((), ("--use-type-alias",)):
         generated = generate_graphql(tmp_path, "pydantic_v2.BaseModel", "3.9", *arguments)
         assert 'Date = TypeAliasType("Date", str)' in generated
-        assert "from typing_extensions import TypeAliasType" in generated
+        assert import_sources(generated, "TypeAliasType") == {"typing_extensions"}
 
 
 def test_graphql_scalars_use_the_type_statement_on_python_312(tmp_path: Path) -> None:
@@ -285,7 +291,7 @@ def test_non_pydantic_roots_use_the_backport_before_python_312(
     generated = generate(tmp_path, output_model, target, *arguments)
     assert 'SimpleString = TypeAliasType("SimpleString", str)' in generated
     assert 'UnionType = TypeAliasType("UnionType", Union[str, int])' in generated
-    assert imports_from_typing_extensions(generated, "TypeAliasType")
+    assert import_sources(generated, "TypeAliasType") == {"typing_extensions"}
     assert "type SimpleString" not in generated
     assert "RootModel" not in generated
 
@@ -313,7 +319,7 @@ def test_graphql_unions_are_aliases_before_python_312(arguments: tuple[str, ...]
     assert '"Being"' in definition
     assert "Person" in definition
     assert "Pet" in definition
-    assert imports_from_typing_extensions(generated, "TypeAliasType")
+    assert import_sources(generated, "TypeAliasType") == {"typing_extensions"}
 
 
 @pytest.mark.parametrize("arguments", [(), ("--use-type-alias",)], ids=["flag-off", "flag-on"])
