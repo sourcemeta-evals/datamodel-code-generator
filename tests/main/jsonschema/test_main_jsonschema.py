@@ -54,27 +54,44 @@ _JSON_TYPE_NAMES = {bool: "boolean", int: "integer", float: "number", str: "stri
 
 def _const_branches(values: list[Any], null_spelling: str | None, branch_type: str | None) -> list[dict[str, Any]]:
     """Build const branches for the given values, optionally typed and followed by a null alternative."""
-    branches: list[dict[str, Any]] = [
-        {"const": value} | ({"type": _JSON_TYPE_NAMES[type(value)]} if branch_type else {}) for value in values
-    ]
+    branches: list[dict[str, Any]] = [{"const": value} for value in values]
+    if branch_type is not None:
+        # "first" types one branch and leaves the rest untyped, the shape that
+        # can tempt a solution into adopting one branch's type as the union's.
+        for branch in branches if branch_type == "declared" else branches[:1]:
+            branch["type"] = _JSON_TYPE_NAMES[type(branch["const"])]
     if null_spelling == "branch":
         branches.append({"type": "null"})
     elif null_spelling == "const":
         branches.append({"const": None})
+    elif null_spelling == "enum":
+        branches.append({"enum": [None]})
     return branches
 
 
-def _import_generated(output: Path) -> ModuleType:
+def _import_generated(output: Path, monkeypatch: pytest.MonkeyPatch) -> ModuleType:
     """Import a generated module from its path, the way a consumer of the output would."""
     module_spec = importlib.util.spec_from_file_location("generated_const_union", output)
     assert module_spec is not None
     assert module_spec.loader is not None
     module = importlib.util.module_from_spec(module_spec)
     # Registered before execution because the generated module postpones its
-    # annotations, so Pydantic resolves them through sys.modules.
-    sys.modules[module_spec.name] = module
+    # annotations, so Pydantic resolves them through sys.modules. The fixture
+    # restores the previous registration once the test ends.
+    monkeypatch.setitem(sys.modules, module_spec.name, module)
     module_spec.loader.exec_module(module)
     return module
+
+
+def _admits(model: Any, value: Any) -> bool:
+    """Check whether a generated model admits a value, whatever shape it was rendered as."""
+    try:
+        # Both Pydantic's ValidationError and Enum's lookup failure are
+        # ValueError, so one call covers a root model and a bare enum alike.
+        model(value)
+    except ValueError:
+        return False
+    return True
 
 
 @pytest.mark.benchmark
@@ -1973,6 +1990,17 @@ def test_main_jsonschema_oneof_const_enum_int(output_file: Path) -> None:
     )
 
 
+def test_main_jsonschema_oneof_const_enum_type_list(output_file: Path) -> None:
+    """Test oneOf with const values and type list (nullable)."""
+    run_main_and_assert(
+        input_path=JSON_SCHEMA_DATA_PATH / "oneof_const_enum_type_list.yaml",
+        output_path=output_file,
+        input_file_type="jsonschema",
+        assert_func=assert_file_content,
+        expected_file="oneof_const_enum_type_list.py",
+    )
+
+
 def test_main_jsonschema_oneof_const_enum_literal(output_file: Path) -> None:
     """Test oneOf with const values as Literal type."""
     run_main_and_assert(
@@ -2031,7 +2059,9 @@ def test_main_jsonschema_oneof_const_structural_null_branch(output_file: Path) -
     )
 
 
-def test_main_jsonschema_oneof_const_structural_null_branch_stays_unrestricted(tmp_path: Path) -> None:
+def test_main_jsonschema_oneof_const_structural_null_branch_stays_unrestricted(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
     """Test a branch carrying its own combinator leaves the outer union unrestricted."""
     output = tmp_path / "model.py"
     assert (
@@ -2043,14 +2073,18 @@ def test_main_jsonschema_oneof_const_structural_null_branch_stays_unrestricted(t
             "--input-file-type",
             "jsonschema",
             "--disable-timestamp",
+            "--output-model-type",
+            "pydantic_v2.BaseModel",
         ])
         == Exit.OK
     )
-    root_annotation = next(line for line in output.read_text(encoding="utf-8").splitlines() if "__root__" in line)
+    root = _import_generated(output, monkeypatch).StructuralNullBranch
     # The alternatives survive whether or not the nested combinator in the
     # second branch is itself converted, so only collapsing the whole union
-    # into a single enum fails this check.
-    assert "Union[" in root_annotation
+    # into a single enum fails this check. A value no branch fixes shows the
+    # unrestricted alternative is still there.
+    assert _admits(root, "a")
+    assert _admits(root, "other")
 
 
 def test_main_jsonschema_oneof_const_type_list_branch(output_file: Path) -> None:
@@ -2086,7 +2120,44 @@ def test_main_jsonschema_oneof_const_sibling_combinators(output_file: Path) -> N
     )
 
 
-def test_main_jsonschema_oneof_const_sibling_combinators_keep_both_restrictions(tmp_path: Path) -> None:
+@pytest.mark.parametrize("keyword", ["oneOf", "anyOf"])
+def test_main_jsonschema_oneof_const_negated_branch_stays_unrestricted(
+    keyword: str, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """Test a `not` beside a `const` leaves the union unrestricted."""
+    schema = tmp_path / "schema.json"
+    schema.write_text(
+        json.dumps({
+            "title": "NegatedBranch",
+            keyword: [{"const": "a", "not": {"const": "a"}}, {"const": "b"}],
+        }),
+        encoding="utf-8",
+    )
+    output = tmp_path / "model.py"
+    assert (
+        main([
+            "--input",
+            str(schema),
+            "--output",
+            str(output),
+            "--input-file-type",
+            "jsonschema",
+            "--disable-timestamp",
+            "--output-model-type",
+            "pydantic_v2.BaseModel",
+        ])
+        == Exit.OK
+    )
+    root = _import_generated(output, monkeypatch).NegatedBranch
+    # The first branch forbids the very value its `const` fixes, so reading
+    # that `const` alone would restrict the union to a set one branch rejects.
+    # A value neither branch mentions shows the restriction was not applied.
+    assert _admits(root, "other")
+
+
+def test_main_jsonschema_oneof_const_sibling_combinators_keep_both_restrictions(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
     """Test a schema restricted by `oneOf` and `anyOf` together keeps both restrictions."""
     output = tmp_path / "model.py"
     assert (
@@ -2098,16 +2169,18 @@ def test_main_jsonschema_oneof_const_sibling_combinators_keep_both_restrictions(
             "--input-file-type",
             "jsonschema",
             "--disable-timestamp",
+            "--output-model-type",
+            "pydantic_v2.BaseModel",
         ])
         == Exit.OK
     )
-    output_text = output.read_text(encoding="utf-8")
+    root = _import_generated(output, monkeypatch).SiblingCombinators
+    admitted = {value for value in ("a", "b", "c", "other") if _admits(root, value)}
     # The fallback leaves the value unrestricted, as the generator does today,
     # and a conversion may restrict it to the one value both combinators allow.
     # Taking either combinator alone admits a value the other forbids, which is
     # the single outcome this rules out.
-    assert "= 'a'" not in output_text
-    assert "= 'c'" not in output_text
+    assert admitted in ({"a", "b", "c", "other"}, {"b"})
 
 
 def test_main_jsonschema_oneof_const_varnames(output_file: Path) -> None:
@@ -2154,17 +2227,6 @@ def test_main_jsonschema_oneof_const_type_list_branch_multi(output_file: Path) -
     )
 
 
-def test_main_jsonschema_oneof_const_unrestricted_branch(output_file: Path) -> None:
-    """Test an empty or annotation-only alternative keeps the union unrestricted."""
-    run_main_and_assert(
-        input_path=JSON_SCHEMA_DATA_PATH / "oneof_const_unrestricted_branch.json",
-        output_path=output_file,
-        input_file_type="jsonschema",
-        assert_func=assert_file_content,
-        expected_file="oneof_const_unrestricted_branch.py",
-    )
-
-
 def test_main_jsonschema_oneof_const_null_type_list_branch(output_file: Path) -> None:
     """Test a `type: ["null"]` branch spells the same null alternative as `type: "null"`."""
     run_main_and_assert(
@@ -2176,15 +2238,29 @@ def test_main_jsonschema_oneof_const_null_type_list_branch(output_file: Path) ->
     )
 
 
-def test_main_jsonschema_oneof_const_existing_enum(output_file: Path) -> None:
+def test_main_jsonschema_oneof_const_existing_enum(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
     """Test a schema restricting its own value with `enum` keeps that restriction."""
-    run_main_and_assert(
-        input_path=JSON_SCHEMA_DATA_PATH / "oneof_const_existing_enum.json",
-        output_path=output_file,
-        input_file_type="jsonschema",
-        assert_func=assert_file_content,
-        expected_file="oneof_const_existing_enum.py",
+    output = tmp_path / "model.py"
+    assert (
+        main([
+            "--input",
+            str(JSON_SCHEMA_DATA_PATH / "oneof_const_existing_enum.json"),
+            "--output",
+            str(output),
+            "--input-file-type",
+            "jsonschema",
+            "--disable-timestamp",
+            "--output-model-type",
+            "pydantic_v2.BaseModel",
+        ])
+        == Exit.OK
     )
+    root = _import_generated(output, monkeypatch).ExistingEnum
+    # The schema's own `enum` allows nothing but `npm`, so the union's `yarn`
+    # must not survive. Which classes carry the restriction, and what they are
+    # named, is not part of that contract.
+    assert _admits(root, "npm")
+    assert not _admits(root, "yarn")
 
 
 def test_main_jsonschema_oneof_const_array_combinator_items(output_file: Path) -> None:
@@ -2241,7 +2317,9 @@ def test_main_jsonschema_oneof_const_annotated_branches(
     assert outputs[0] == outputs[1]
 
 
-def _assert_const_union_imports(schema_dict: dict[str, Any], extra_args: list[str], tmp_path: Path) -> None:
+def _assert_const_union_imports(
+    schema_dict: dict[str, Any], extra_args: list[str], monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
     """Generate a module from the schema and import it the way a consumer of the output would."""
     schema = tmp_path / "schema.json"
     schema.write_text(json.dumps(schema_dict), encoding="utf-8")
@@ -2263,7 +2341,7 @@ def _assert_const_union_imports(schema_dict: dict[str, Any], extra_args: list[st
         ])
         == Exit.OK
     )
-    _import_generated(output)
+    _import_generated(output, monkeypatch)
 
 
 @pytest.mark.parametrize("extra_args", [[], ["--use-subclass-enum"]])
@@ -2277,11 +2355,15 @@ def test_main_jsonschema_oneof_const_enum_untyped_imports(
     null_spelling: str | None,
     branch_type: str | None,
     extra_args: list[str],
+    monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
     """Test an untyped const union generates a module that imports, whatever its values are."""
     _assert_const_union_imports(
-        {"title": "Mode", keyword: _const_branches(values, null_spelling, branch_type)}, extra_args, tmp_path
+        {"title": "Mode", keyword: _const_branches(values, null_spelling, branch_type)},
+        extra_args,
+        monkeypatch,
+        tmp_path,
     )
 
 
@@ -2296,6 +2378,7 @@ def test_main_jsonschema_oneof_const_enum_declared_imports(
     null_spelling: str | None,
     branch_type: str | None,
     extra_args: list[str],
+    monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
     """Test a const union whose schema declares its own type also generates a module that imports."""
@@ -2306,6 +2389,7 @@ def test_main_jsonschema_oneof_const_enum_declared_imports(
     _assert_const_union_imports(
         {"title": "Mode", **parent, keyword: _const_branches(values, null_spelling, branch_type)},
         extra_args,
+        monkeypatch,
         tmp_path,
     )
 
@@ -2318,6 +2402,7 @@ def test_main_jsonschema_oneof_const_enum_declared_imports(
         ({"type": "string"}, ["npm", "yarn"], None, None, []),
         ({"type": ["string"]}, ["npm", "yarn"], None, None, []),
         ({"type": ["integer"]}, [1, 2], None, None, ["--use-subclass-enum"]),
+        ({"type": ["string", "null"]}, ["npm", "yarn"], None, None, []),
         ({"type": ["integer", "null"]}, [1, 2], None, None, ["--use-subclass-enum"]),
         ({"type": ["number", "null"]}, [0.5, 1.5], None, None, []),
         ({"type": ["boolean", "null"]}, [True, False], None, None, []),
@@ -2332,6 +2417,15 @@ def test_main_jsonschema_oneof_const_enum_declared_imports(
         ({}, ["npm", "yarn"], "const", None, []),
         ({}, [], "branch", None, []),
         ({}, [], "const", None, []),
+        ({"type": ["string"]}, ["npm", "yarn"], "branch", None, []),
+        ({"type": ["string"]}, ["npm", "yarn"], "const", None, []),
+        ({"type": "string"}, ["npm", "yarn"], "enum", None, []),
+        ({"type": "integer"}, [1, 2], "enum", None, ["--use-subclass-enum"]),
+        ({}, ["npm", "yarn"], "enum", None, []),
+        ({}, [], "enum", None, []),
+        ({}, [True, 1, False, 0], None, None, []),
+        ({}, [1, "npm"], None, "first", []),
+        ({"type": ["integer", "null"]}, [1, 2], None, None, ["--no-use-specialized-enum"]),
     ],
 )
 def test_main_jsonschema_const_union_matches_equivalent_enum(
@@ -2491,7 +2585,7 @@ def test_main_jsonschema_oneof_const_empty_properties(output_file: Path) -> None
     )
 
 
-def test_main_jsonschema_oneof_const_read_only_write_only(tmp_path: Path) -> None:
+def test_main_jsonschema_oneof_const_read_only_write_only(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
     """Test const branches carrying readOnly or writeOnly still split request and response models."""
     schema = tmp_path / "schema.json"
     schema.write_text(
@@ -2524,7 +2618,7 @@ def test_main_jsonschema_oneof_const_read_only_write_only(tmp_path: Path) -> Non
         ])
         == Exit.OK
     )
-    module = _import_generated(output)
+    module = _import_generated(output, monkeypatch)
     # A conversion that drops the branch flags leaves no field read-only or
     # write-only, so the generator emits neither split model at all.
     assert {"ThingRequest", "ThingResponse"} <= set(vars(module))

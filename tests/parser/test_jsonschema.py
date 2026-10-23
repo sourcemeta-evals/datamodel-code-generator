@@ -878,6 +878,16 @@ def test_extract_const_enum_null_branch_marks_nullable_and_is_ignored() -> None:
     assert nullable is True
 
 
+def test_extract_const_enum_parent_type_list_with_null_marks_nullable() -> None:
+    """A parent type list of [string, null] sets nullable and resolves to the non-null type."""
+    items = [_make_const_obj("a"), _make_const_obj("b")]
+    result = JsonSchemaParser._extract_const_enum_from_combined(items, ["string", "null"])
+    assert result is not None
+    _, final_type, nullable = result
+    assert final_type == "string"
+    assert nullable is True
+
+
 def test_extract_const_enum_parent_type_list_with_null_non_string() -> None:
     """Parent type list of [integer, null] keeps the null in the type instead."""
     items = [_make_const_obj(1), _make_const_obj(2)]
@@ -896,6 +906,36 @@ def test_extract_const_enum_null_const_branch_marks_nullable() -> None:
     enum_values, _, nullable = result
     assert enum_values == ["a"]
     assert nullable is True
+
+
+def test_extract_const_enum_null_enum_branch_marks_nullable() -> None:
+    """An {enum: [null]} branch admits nothing but null, so it sets nullable like the other spellings."""
+    items = [_make_const_obj("a"), JsonSchemaObject.parse_obj({"enum": [None]})]
+    result = JsonSchemaParser._extract_const_enum_from_combined(items, "string")
+    assert result is not None
+    enum_values, _, nullable = result
+    assert enum_values == ["a"]
+    assert nullable is True
+
+
+def test_extract_const_enum_singleton_string_list_with_null_branch_collapses() -> None:
+    """A parent type list of [string] turns nullable through a branch and resolves to the scalar type."""
+    items = [_make_const_obj("a"), JsonSchemaObject.parse_obj({"type": "null"})]
+    result = JsonSchemaParser._extract_const_enum_from_combined(items, ["string"])
+    assert result is not None
+    _, final_type, nullable = result
+    assert final_type == "string"
+    assert nullable is True
+
+
+def test_extract_const_enum_singleton_string_list_without_null_is_left_alone() -> None:
+    """A parent type list of [string] with no null anywhere keeps the list the schema wrote."""
+    items = [_make_const_obj("a"), _make_const_obj("b")]
+    result = JsonSchemaParser._extract_const_enum_from_combined(items, ["string"])
+    assert result is not None
+    _, final_type, nullable = result
+    assert final_type == ["string"]
+    assert nullable is False
 
 
 def test_extract_const_enum_ref_sibling_rejects_pure_const() -> None:
@@ -918,6 +958,27 @@ def test_extract_const_enum_properties_sibling_rejects_pure_const() -> None:
 def test_extract_const_enum_empty_properties_sibling_rejects_pure_const() -> None:
     """A branch with const plus an explicit empty properties dict is also not pure const."""
     items = [JsonSchemaObject.parse_obj({"const": "a", "properties": {}})]
+    result = JsonSchemaParser._extract_const_enum_from_combined(items, None)
+    assert result is None
+
+
+def test_extract_const_enum_value_enum_sibling_rejects_pure_const() -> None:
+    """A branch restricting its value with `enum` is governed by that keyword, not by a const."""
+    items = [_make_const_obj("a"), JsonSchemaObject.parse_obj({"enum": ["b"]})]
+    result = JsonSchemaParser._extract_const_enum_from_combined(items, None)
+    assert result is None
+
+
+def test_extract_const_enum_null_type_with_value_const_rejects_pure_const() -> None:
+    """A branch whose type admits only null, beside a const that is not null, admits nothing."""
+    items = [JsonSchemaObject.parse_obj({"type": "null", "const": "a"})]
+    result = JsonSchemaParser._extract_const_enum_from_combined(items, None)
+    assert result is None
+
+
+def test_extract_const_enum_negated_sibling_rejects_pure_const() -> None:
+    """A branch with const plus `not` forbids the value its const fixes, so it is not a pure const."""
+    items = [JsonSchemaObject.parse_obj({"const": "a", "not": {"const": "a"}})]
     result = JsonSchemaParser._extract_const_enum_from_combined(items, None)
     assert result is None
 
