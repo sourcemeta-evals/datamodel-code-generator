@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import importlib.util
 import json
 from collections import defaultdict
 from pathlib import Path
@@ -38,10 +39,24 @@ from tests.main.conftest import (
 from tests.main.jsonschema.conftest import EXPECTED_JSON_SCHEMA_PATH, assert_file_content
 
 if TYPE_CHECKING:
+    from typing import Any
+
     from pytest_mock import MockerFixture
 
 
 FixtureRequest = pytest.FixtureRequest
+
+_JSON_TYPE_NAMES = {bool: "boolean", int: "integer", float: "number", str: "string"}
+
+
+def _const_branches(values: list[Any], nullable: bool, branch_type: str | None) -> list[dict[str, Any]]:
+    """Build const branches for the given values, optionally typed and followed by a null branch."""
+    branches: list[dict[str, Any]] = [
+        {"const": value} | ({"type": _JSON_TYPE_NAMES[type(value)]} if branch_type else {}) for value in values
+    ]
+    if nullable:
+        branches.append({"type": "null"})
+    return branches
 
 
 @pytest.mark.benchmark
@@ -1940,17 +1955,6 @@ def test_main_jsonschema_oneof_const_enum_int(output_file: Path) -> None:
     )
 
 
-def test_main_jsonschema_oneof_const_enum_type_list(output_file: Path) -> None:
-    """Test oneOf with const values and type list (nullable)."""
-    run_main_and_assert(
-        input_path=JSON_SCHEMA_DATA_PATH / "oneof_const_enum_type_list.yaml",
-        output_path=output_file,
-        input_file_type="jsonschema",
-        assert_func=assert_file_content,
-        expected_file="oneof_const_enum_type_list.py",
-    )
-
-
 def test_main_jsonschema_oneof_const_enum_literal(output_file: Path) -> None:
     """Test oneOf with const values as Literal type."""
     run_main_and_assert(
@@ -1960,6 +1964,287 @@ def test_main_jsonschema_oneof_const_enum_literal(output_file: Path) -> None:
         assert_func=assert_file_content,
         expected_file="oneof_const_enum_literal.py",
         extra_args=["--enum-field-as-literal", "all"],
+    )
+
+
+def test_main_jsonschema_oneof_const_nullable_literal(output_file: Path) -> None:
+    """Test a nullable oneOf of const values stays optional as a Literal type."""
+    run_main_and_assert(
+        input_path=JSON_SCHEMA_DATA_PATH / "oneof_const_enum_nullable.yaml",
+        output_path=output_file,
+        input_file_type="jsonschema",
+        assert_func=assert_file_content,
+        expected_file="oneof_const_nullable_literal.py",
+        extra_args=["--enum-field-as-literal", "all"],
+    )
+
+
+def test_main_jsonschema_oneof_const_mixed_values(output_file: Path) -> None:
+    """Test const branches of differing value types stay an unspecialised enum."""
+    run_main_and_assert(
+        input_path=JSON_SCHEMA_DATA_PATH / "oneof_const_mixed_values.json",
+        output_path=output_file,
+        input_file_type="jsonschema",
+        assert_func=assert_file_content,
+        expected_file="oneof_const_mixed_values.py",
+    )
+
+
+def test_main_jsonschema_oneof_const_use_default_required(output_file: Path) -> None:
+    """Test a const union without a schema default stays required under --use-default."""
+    run_main_and_assert(
+        input_path=JSON_SCHEMA_DATA_PATH / "oneof_const_enum.yaml",
+        output_path=output_file,
+        input_file_type="jsonschema",
+        assert_func=assert_file_content,
+        expected_file="oneof_const_use_default_required.py",
+        extra_args=["--enum-field-as-literal", "all", "--use-default"],
+    )
+
+
+def test_main_jsonschema_oneof_const_structural_null_branch(output_file: Path) -> None:
+    """Test a null-typed branch carrying a combinator is not treated as a plain null."""
+    run_main_and_assert(
+        input_path=JSON_SCHEMA_DATA_PATH / "oneof_const_structural_null_branch.json",
+        output_path=output_file,
+        input_file_type="jsonschema",
+        assert_func=assert_file_content,
+        expected_file="oneof_const_structural_null_branch.py",
+    )
+
+
+def test_main_jsonschema_oneof_const_type_list_branch(output_file: Path) -> None:
+    """Test a non-const branch declaring a list of types parses without crashing."""
+    run_main_and_assert(
+        input_path=JSON_SCHEMA_DATA_PATH / "oneof_const_type_list_branch.json",
+        output_path=output_file,
+        input_file_type="jsonschema",
+        assert_func=assert_file_content,
+        expected_file="oneof_const_type_list_branch.py",
+    )
+
+
+def test_main_jsonschema_oneof_const_type_list_multi(output_file: Path) -> None:
+    """Test a parent type list with several non-null types leaves the enum unspecialised."""
+    run_main_and_assert(
+        input_path=JSON_SCHEMA_DATA_PATH / "oneof_const_type_list_multi.json",
+        output_path=output_file,
+        input_file_type="jsonschema",
+        assert_func=assert_file_content,
+        expected_file="oneof_const_type_list_multi.py",
+    )
+
+
+def test_main_jsonschema_oneof_const_sibling_combinators(output_file: Path) -> None:
+    """Test a schema restricted by both combinators keeps its existing non-enum output."""
+    run_main_and_assert(
+        input_path=JSON_SCHEMA_DATA_PATH / "oneof_const_sibling_combinators.json",
+        output_path=output_file,
+        input_file_type="jsonschema",
+        assert_func=assert_file_content,
+        expected_file="oneof_const_sibling_combinators.py",
+    )
+
+
+def test_main_jsonschema_oneof_const_varnames(output_file: Path) -> None:
+    """Test the parent's x-enum-varnames still name the converted enum's members."""
+    run_main_and_assert(
+        input_path=JSON_SCHEMA_DATA_PATH / "oneof_const_varnames.json",
+        output_path=output_file,
+        input_file_type="jsonschema",
+        assert_func=assert_file_content,
+        expected_file="oneof_const_varnames.py",
+    )
+
+
+def test_main_jsonschema_oneof_const_all_of_ref(output_file: Path) -> None:
+    """Test a single-reference allOf targeting a const union keeps its enum reference."""
+    run_main_and_assert(
+        input_path=JSON_SCHEMA_DATA_PATH / "oneof_const_all_of_ref.json",
+        output_path=output_file,
+        input_file_type="jsonschema",
+        assert_func=assert_file_content,
+        expected_file="oneof_const_all_of_ref.py",
+    )
+
+
+def test_main_jsonschema_oneof_const_type_list_branch_const(output_file: Path) -> None:
+    """Test a pure const branch declaring a list of types parses without crashing."""
+    run_main_and_assert(
+        input_path=JSON_SCHEMA_DATA_PATH / "oneof_const_type_list_branch_const.json",
+        output_path=output_file,
+        input_file_type="jsonschema",
+        assert_func=assert_file_content,
+        expected_file="oneof_const_type_list_branch_const.py",
+    )
+
+
+def test_main_jsonschema_oneof_const_type_list_branch_multi(output_file: Path) -> None:
+    """Test a const branch declaring several types still contributes its fixed value."""
+    run_main_and_assert(
+        input_path=JSON_SCHEMA_DATA_PATH / "oneof_const_type_list_branch_multi.json",
+        output_path=output_file,
+        input_file_type="jsonschema",
+        assert_func=assert_file_content,
+        expected_file="oneof_const_type_list_branch_multi.py",
+    )
+
+
+def test_main_jsonschema_oneof_const_unrestricted_branch(output_file: Path) -> None:
+    """Test an empty or annotation-only alternative keeps the union unrestricted."""
+    run_main_and_assert(
+        input_path=JSON_SCHEMA_DATA_PATH / "oneof_const_unrestricted_branch.json",
+        output_path=output_file,
+        input_file_type="jsonschema",
+        assert_func=assert_file_content,
+        expected_file="oneof_const_unrestricted_branch.py",
+    )
+
+
+@pytest.mark.parametrize("annotation", [{"title": "Npm"}, {"default": "npm"}, {"examples": ["npm"]}])
+@pytest.mark.parametrize("keyword", ["oneOf", "anyOf"])
+def test_main_jsonschema_oneof_const_annotated_branches(
+    annotation: dict[str, Any], keyword: str, tmp_path: Path
+) -> None:
+    """Test an annotation on a const branch leaves the fixed value set intact."""
+    outputs = []
+    for value_schema in (
+        {keyword: [{"const": "npm", **annotation}, {"const": "yarn"}]},
+        {"enum": ["npm", "yarn"]},
+    ):
+        schema = tmp_path / "schema.json"
+        schema.write_text(json.dumps({"title": "Mode", "type": "string", **value_schema}), encoding="utf-8")
+        output = tmp_path / "model.py"
+        assert (
+            main([
+                "--input",
+                str(schema),
+                "--output",
+                str(output),
+                "--input-file-type",
+                "jsonschema",
+                "--disable-timestamp",
+            ])
+            == Exit.OK
+        )
+        outputs.append(output.read_text(encoding="utf-8"))
+
+    assert outputs[0] == outputs[1]
+
+
+@pytest.mark.parametrize("extra_args", [[], ["--use-subclass-enum"]])
+@pytest.mark.parametrize("branch_type", [None, "declared"])
+@pytest.mark.parametrize("nullable", [False, True])
+@pytest.mark.parametrize("values", [[1, 2], [1.5, 2.5], ["npm", "yarn"], [1, "npm"]])
+@pytest.mark.parametrize("keyword", ["oneOf", "anyOf"])
+def test_main_jsonschema_oneof_const_enum_infer_type_imports(
+    keyword: str,
+    values: list[Any],
+    nullable: bool,
+    branch_type: str | None,
+    extra_args: list[str],
+    tmp_path: Path,
+) -> None:
+    """Test an untyped const union generates a module that imports, whatever its values are."""
+    schema = tmp_path / "schema.json"
+    schema.write_text(
+        json.dumps({"title": "Mode", keyword: _const_branches(values, nullable, branch_type)}), encoding="utf-8"
+    )
+    output = tmp_path / "model.py"
+    assert (
+        main([
+            "--input",
+            str(schema),
+            "--output",
+            str(output),
+            "--input-file-type",
+            "jsonschema",
+            "--disable-timestamp",
+            # The installed Pydantic is the one the generated module imports, so
+            # the backend has to match it for importing to mean anything.
+            "--output-model-type",
+            "pydantic_v2.BaseModel",
+            *extra_args,
+        ])
+        == Exit.OK
+    )
+    module_spec = importlib.util.spec_from_file_location("generated_const_union", output)
+    assert module_spec is not None
+    assert module_spec.loader is not None
+    module_spec.loader.exec_module(importlib.util.module_from_spec(module_spec))
+
+
+@pytest.mark.parametrize("literal_args", [[], ["--enum-field-as-literal", "all"]])
+@pytest.mark.parametrize("keyword", ["oneOf", "anyOf"])
+@pytest.mark.parametrize(
+    ("parent", "values", "nullable", "branch_type", "extra_args"),
+    [
+        ({"type": "string"}, ["npm", "yarn"], False, None, []),
+        ({"type": ["string"]}, ["npm", "yarn"], False, None, []),
+        ({"type": ["integer"]}, [1, 2], False, None, ["--use-subclass-enum"]),
+        ({}, [1, 2], False, None, ["--use-subclass-enum"]),
+        ({}, [1, 2], True, None, ["--use-subclass-enum"]),
+        ({}, [1, 2], False, "declared", ["--use-subclass-enum"]),
+        ({}, [1, "npm"], False, "declared", []),
+        ({}, ["npm", "yarn"], True, None, []),
+    ],
+)
+def test_main_jsonschema_const_union_matches_equivalent_enum(
+    parent: dict[str, Any],
+    values: list[Any],
+    nullable: bool,
+    branch_type: str | None,
+    extra_args: list[str],
+    keyword: str,
+    literal_args: list[str],
+    tmp_path: Path,
+) -> None:
+    """Test a const union generates exactly what the equivalent enum schema generates."""
+    enum_parent = dict(parent)
+    enum_values = list(values)
+    if nullable or "null" in enum_parent.get("type", []):
+        enum_values.append(None)
+        remaining = [t for t in enum_parent.get("type", []) if t != "null"]
+        if remaining:
+            enum_parent["type"] = remaining[0] if len(remaining) == 1 else remaining
+        else:
+            enum_parent.pop("type", None)
+    outputs = []
+    for metadata, value_schema in (
+        (parent, {keyword: _const_branches(values, nullable, branch_type)}),
+        (enum_parent, {"enum": enum_values}),
+    ):
+        schema = tmp_path / "schema.json"
+        schema.write_text(json.dumps({"title": "Mode", **metadata, **value_schema}), encoding="utf-8")
+        output = tmp_path / "model.py"
+        assert (
+            main([
+                "--input",
+                str(schema),
+                "--output",
+                str(output),
+                "--input-file-type",
+                "jsonschema",
+                "--disable-timestamp",
+                *extra_args,
+                *literal_args,
+            ])
+            == Exit.OK
+        )
+        outputs.append(output.read_text(encoding="utf-8"))
+
+    assert outputs[0] == outputs[1]
+
+
+def test_main_jsonschema_oneof_const_nullable_pydantic_v2(output_file: Path) -> None:
+    """Test a nullable const union renders through the Pydantic v2 root model."""
+    run_main_and_assert(
+        input_path=JSON_SCHEMA_DATA_PATH / "oneof_const_enum_nullable.yaml",
+        output_path=output_file,
+        input_file_type="jsonschema",
+        assert_func=assert_file_content,
+        expected_file="oneof_const_nullable_pydantic_v2.py",
+        extra_args=["--output-model-type", "pydantic_v2.BaseModel"],
     )
 
 
@@ -2038,6 +2323,17 @@ def test_main_jsonschema_oneof_const_with_properties(output_file: Path) -> None:
         input_file_type="jsonschema",
         assert_func=assert_file_content,
         expected_file="oneof_const_with_properties.py",
+    )
+
+
+def test_main_jsonschema_oneof_const_empty_properties(output_file: Path) -> None:
+    """Test oneOf with const branches plus empty properties dict falls back to Union, not enum."""
+    run_main_and_assert(
+        input_path=JSON_SCHEMA_DATA_PATH / "oneof_const_empty_properties.json",
+        output_path=output_file,
+        input_file_type="jsonschema",
+        assert_func=assert_file_content,
+        expected_file="oneof_const_empty_properties.py",
     )
 
 

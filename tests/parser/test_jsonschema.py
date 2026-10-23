@@ -844,3 +844,68 @@ def test_get_ref_body_from_url_file_local_path(mocker: MockerFixture) -> None:
     mock_load.assert_called_once()
     called_path = mock_load.call_args[0][0]
     assert called_path.parts[-4:] == ("home", "user", "schemas", "pet.json")
+
+
+def _make_const_obj(value: Any, **extras: Any) -> JsonSchemaObject:
+    """Build a JsonSchemaObject from a const value and optional sibling keywords."""
+    return JsonSchemaObject.parse_obj({"const": value, **extras})
+
+
+def test_extract_const_enum_returns_none_when_no_items() -> None:
+    """Empty items list yields no extraction."""
+    result = JsonSchemaParser._extract_const_enum_from_combined([], None)
+    assert result is None
+
+
+def test_extract_const_enum_pure_const_branches_extract_string() -> None:
+    """Pure const branches extract values and the resolved type."""
+    items = [_make_const_obj("a"), _make_const_obj("b")]
+    result = JsonSchemaParser._extract_const_enum_from_combined(items, "string")
+    assert result is not None
+    enum_values, final_type, nullable = result
+    assert enum_values == ["a", "b"]
+    assert final_type == "string"
+    assert nullable is False
+
+
+def test_extract_const_enum_null_branch_marks_nullable_and_is_ignored() -> None:
+    """An explicit {type: null} branch sets nullable and is not added to enum values."""
+    items = [_make_const_obj("a"), JsonSchemaObject.parse_obj({"type": "null"})]
+    result = JsonSchemaParser._extract_const_enum_from_combined(items, "string")
+    assert result is not None
+    enum_values, _, nullable = result
+    assert enum_values == ["a"]
+    assert nullable is True
+
+
+def test_extract_const_enum_ref_sibling_rejects_pure_const() -> None:
+    """A branch with const plus $ref is not a pure const and triggers fallback."""
+    items = [
+        _make_const_obj("a"),
+        JsonSchemaObject.parse_obj({"$ref": "#/defs/X"}),
+    ]
+    result = JsonSchemaParser._extract_const_enum_from_combined(items, None)
+    assert result is None
+
+
+def test_extract_const_enum_properties_sibling_rejects_pure_const() -> None:
+    """A branch with const plus non-empty properties is not pure const."""
+    items = [JsonSchemaObject.parse_obj({"const": "a", "properties": {"x": {"type": "string"}}})]
+    result = JsonSchemaParser._extract_const_enum_from_combined(items, None)
+    assert result is None
+
+
+def test_extract_const_enum_empty_properties_sibling_rejects_pure_const() -> None:
+    """A branch with const plus an explicit empty properties dict is also not pure const."""
+    items = [JsonSchemaObject.parse_obj({"const": "a", "properties": {}})]
+    result = JsonSchemaParser._extract_const_enum_from_combined(items, None)
+    assert result is None
+
+
+def test_extract_const_enum_leaves_absent_parent_type_absent() -> None:
+    """No type is inferred from const values when the parent schema declares none."""
+    items = [_make_const_obj("a"), _make_const_obj("b")]
+    result = JsonSchemaParser._extract_const_enum_from_combined(items, None)
+    assert result is not None
+    _, final_type, _ = result
+    assert final_type is None

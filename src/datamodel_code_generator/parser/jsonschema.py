@@ -729,80 +729,98 @@ class JsonSchemaParser(Parser):
         )
 
     @classmethod
-    def _extract_const_enum_from_combined(  # noqa: PLR0912
+    def _extract_const_enum_from_combined(
         cls, items: list[JsonSchemaObject], parent_type: str | list[str] | None
-    ) -> tuple[list[Any], list[str], str | None, bool]:
+    ) -> tuple[list[Any], str | list[str] | None, bool] | None:
         """Extract enum values from oneOf/anyOf const pattern."""
         enum_values: list[Any] = []
-        varnames: list[str] = []
         nullable = False
-        inferred_type: str | None = None
 
         for item in items:
-            if item.type == "null" and "const" not in item.extras:
+            # Checked before the null shortcut below: a branch carrying any of
+            # these is governed by them rather than by a sibling `type: "null"`,
+            # so it is not a plain null alternative and the union must fall back.
+            if item.ref is not None or item.properties is not None or item.oneOf or item.anyOf or item.allOf:
+                return None
+
+            # `type: ["null"]` spells the same alternative as `type: "null"`,
+            # which `type_has_null` already treats alike.
+            item_type = item.type[0] if isinstance(item.type, list) and len(item.type) == 1 else item.type
+            if item_type == "null" and "const" not in item.extras:
                 nullable = True
                 continue
 
             if "const" not in item.extras:
                 return None
 
-            if item.ref or item.properties or item.oneOf or item.anyOf or item.allOf:
-                return None
-
             const_value = item.extras["const"]
             enum_values.append(const_value)
-
-            if item.title:
-                varnames.append(item.title)
-            else:
-                varnames.append(str(const_value))
-
-            if inferred_type is None and const_value is not None:
-                if isinstance(const_value, str):
-                    inferred_type = "string"
-                elif isinstance(const_value, bool):
-                    inferred_type = "boolean"
-                elif isinstance(const_value, int):
-                    inferred_type = "integer"
-                elif isinstance(const_value, float):
-                    inferred_type = "number"
 
         if not enum_values:  # pragma: no cover
             return None
 
-        final_type: str | None
-        if isinstance(parent_type, str):
-            final_type = parent_type
-        elif isinstance(parent_type, list):
-            non_null_types = [t for t in parent_type if t != "null"]
-            final_type = non_null_types[0] if non_null_types else inferred_type
-            if "null" in parent_type:
-                nullable = True
-        else:
-            final_type = inferred_type
+        # The schema's own `type` governs, exactly as it would for an equivalent
+        # `enum` schema. A type is never inferred from the const values, because
+        # that would make a const union render differently from that equivalent.
+        # Left exactly as written, including a list: an equivalent `enum` schema
+        # carrying the same list renders unspecialised, so collapsing it here
+        # would make the two disagree.
+        final_type: str | list[str] | None = parent_type
 
-        return (enum_values, varnames, final_type, nullable)
+        return (enum_values, final_type, nullable)
+
+    def _const_enum_data(self, obj: JsonSchemaObject) -> tuple[list[Any], str | list[str] | None, bool] | None:
+        """Extract const-union enum data, unless the parent schema forbids conversion."""
+        if obj.oneOf and obj.anyOf:
+            # Both combinators restrict the value, and converting either one
+            # alone would silently drop the other, so leave the schema on the
+            # existing combinator path.
+            return None
+        if "const" in obj.extras:
+            # A schema carrying its own `const` beside a combinator is a branch
+            # that `parse_combined_schema` merged with its parent, which drops
+            # the sibling combinator. Converting here would reintroduce the
+            # restriction loss the check above exists to prevent.
+            return None
+        if obj.enum:
+            # The schema already restricts its value, and replacing that
+            # restriction with every branch value would widen it, so leave the
+            # existing enum handling in charge.
+            return None
+        items = obj.oneOf or obj.anyOf
+        if not items:  # pragma: no cover
+            return None
+        return self._extract_const_enum_from_combined(items, obj.type)
+
+    def _has_fixed_value_set(self, obj: JsonSchemaObject) -> bool:
+        """Check whether a schema restricts its value with `enum` or a const-only union."""
+        return bool(obj.enum) or self._const_enum_data(obj) is not None
 
     def _create_synthetic_enum_obj(
         self,
         original: JsonSchemaObject,
         enum_values: list[Any],
-        varnames: list[str],
-        enum_type: str | None,
+        enum_type: str | list[str] | None,
         nullable: bool,  # noqa: FBT001
     ) -> JsonSchemaObject:
         """Create a synthetic JsonSchemaObject for enum parsing."""
-        final_enum = [*enum_values, None] if nullable else enum_values
-        final_varnames = varnames if len(varnames) == len(enum_values) else []
+        # Start from the original's own fields so that everything the enum
+        # renderer reads, `x-enum-varnames` included, survives the conversion,
+        # and so that an unset `default` stays unset: `has_default` tests field
+        # presence, and inventing one would make a required root optional under
+        # apply_default_values_for_required_fields.
+        base_dict = original.dict(exclude_unset=True, by_alias=True)
+        for combinator in ("oneOf", "anyOf"):
+            base_dict.pop(combinator, None)
+        base_dict["enum"] = [*enum_values, None] if nullable else enum_values
+        # The key is dropped rather than set to None, because the field's
+        # validator rewrites a None type to the string "null".
+        if enum_type is None:
+            base_dict.pop("type", None)
+        else:
+            base_dict["type"] = enum_type
 
-        return self.SCHEMA_OBJECT_TYPE(
-            type=enum_type,
-            enum=final_enum,
-            title=original.title,
-            description=original.description,
-            x_enum_varnames=final_varnames,
-            default=original.default if original.has_default else None,
-        )
+        return self.SCHEMA_OBJECT_TYPE.parse_obj(base_dict)
 
     def is_constraints_field(self, obj: JsonSchemaObject) -> bool:
         """Check if a field should include constraints."""
@@ -1570,6 +1588,16 @@ class JsonSchemaParser(Parser):
                     self.model_resolver.add(path, name, class_name=True, loaded=True)
                     union_models.extend(d.reference for d in self.parse_one_of(name, all_of_item, path) if d.reference)
 
+    def _is_enum_like_ref_target(self, ref: str) -> bool:
+        """Check whether a local reference points at a schema that fixes its value set."""
+        target = get_model_by_path(self.raw_obj, ref[2:].split("/"))
+        if not isinstance(target, dict):  # pragma: no cover
+            return False
+        # A const-only union restricts a value just as `enum` does, so it may
+        # take the same single-reference shortcut. Eligibility is asked of the
+        # shared helper rather than re-derived from the raw mapping.
+        return self._has_fixed_value_set(self.SCHEMA_OBJECT_TYPE.parse_obj(target))
+
     def parse_all_of(
         self,
         name: str,
@@ -1583,7 +1611,7 @@ class JsonSchemaParser(Parser):
             if (
                 single_obj.ref
                 and single_obj.ref_type == JSONReference.LOCAL
-                and get_model_by_path(self.raw_obj, single_obj.ref[2:].split("/")).get("enum")
+                and self._is_enum_like_ref_target(single_obj.ref)
             ):
                 return self.get_ref_data_type(single_obj.ref)
 
@@ -1841,7 +1869,15 @@ class JsonSchemaParser(Parser):
         if self.use_title_as_name and item.title:
             name = sanitize_module_name(item.title, treat_dot_as_module=self.treat_dot_as_module)
             singular_name = False
-        if parent and not item.enum and item.has_constraint and (parent.has_constraint or self.field_constraints):
+        if (
+            parent
+            and item.has_constraint
+            and (parent.has_constraint or self.field_constraints)
+            # A const union is converted below, exactly as an `enum` item is.
+            # Routing either one through a constrained root type instead reuses
+            # this name for both models, generating a self-referencing field.
+            and not self._has_fixed_value_set(item)
+        ):
             root_type_path = get_special_path("array", path)
             return self.parse_root_type(
                 self.model_resolver.add(
@@ -1862,19 +1898,19 @@ class JsonSchemaParser(Parser):
         if item.discriminator and parent and parent.is_array and (item.oneOf or item.anyOf):
             return self.parse_root_type(name, item, path)
         if item.anyOf:
-            const_enum_data = self._extract_const_enum_from_combined(item.anyOf, item.type)
+            const_enum_data = self._const_enum_data(item)
             if const_enum_data is not None:
-                enum_values, varnames, enum_type, nullable = const_enum_data
-                synthetic_obj = self._create_synthetic_enum_obj(item, enum_values, varnames, enum_type, nullable)
+                enum_values, enum_type, nullable = const_enum_data
+                synthetic_obj = self._create_synthetic_enum_obj(item, enum_values, enum_type, nullable)
                 if self.should_parse_enum_as_literal(synthetic_obj):
                     return self.parse_enum_as_literal(synthetic_obj)
                 return self.parse_enum(name, synthetic_obj, get_special_path("enum", path), singular_name=singular_name)
             return self.data_type(data_types=self.parse_any_of(name, item, get_special_path("anyOf", path)))
         if item.oneOf:
-            const_enum_data = self._extract_const_enum_from_combined(item.oneOf, item.type)
+            const_enum_data = self._const_enum_data(item)
             if const_enum_data is not None:
-                enum_values, varnames, enum_type, nullable = const_enum_data
-                synthetic_obj = self._create_synthetic_enum_obj(item, enum_values, varnames, enum_type, nullable)
+                enum_values, enum_type, nullable = const_enum_data
+                synthetic_obj = self._create_synthetic_enum_obj(item, enum_values, enum_type, nullable)
                 if self.should_parse_enum_as_literal(synthetic_obj):
                     return self.parse_enum_as_literal(synthetic_obj)
                 return self.parse_enum(name, synthetic_obj, get_special_path("enum", path), singular_name=singular_name)
@@ -2073,11 +2109,10 @@ class JsonSchemaParser(Parser):
                 name, obj, get_special_path("array", path)
             ).data_type  # pragma: no cover
         elif obj.anyOf or obj.oneOf:
-            combined_items = obj.anyOf or obj.oneOf
-            const_enum_data = self._extract_const_enum_from_combined(combined_items, obj.type)
+            const_enum_data = self._const_enum_data(obj)
             if const_enum_data is not None:  # pragma: no cover
-                enum_values, varnames, enum_type, nullable = const_enum_data
-                synthetic_obj = self._create_synthetic_enum_obj(obj, enum_values, varnames, enum_type, nullable)
+                enum_values, enum_type, nullable = const_enum_data
+                synthetic_obj = self._create_synthetic_enum_obj(obj, enum_values, enum_type, nullable)
                 if self.should_parse_enum_as_literal(synthetic_obj):
                     data_type = self.parse_enum_as_literal(synthetic_obj)
                 else:
@@ -2205,8 +2240,11 @@ class JsonSchemaParser(Parser):
         self.results.append(data_model_root_type)
 
     def parse_enum_as_literal(self, obj: JsonSchemaObject) -> DataType:
-        """Parse enum values as a Literal type."""
-        return self.data_type(literals=[i for i in obj.enum if i is not None])
+        """Parse enum values as a Literal type, staying optional when null is a member."""
+        return self.data_type(
+            literals=[i for i in obj.enum if i is not None],
+            is_optional=None in obj.enum,
+        )
 
     @classmethod
     def _get_field_name_from_dict_enum(cls, enum_part: dict[str, Any], index: int) -> str:
@@ -2520,11 +2558,10 @@ class JsonSchemaParser(Parser):
         elif obj.allOf:
             self.parse_all_of(name, obj, path)
         elif obj.oneOf or obj.anyOf:
-            combined_items = obj.oneOf or obj.anyOf
-            const_enum_data = self._extract_const_enum_from_combined(combined_items, obj.type)
+            const_enum_data = self._const_enum_data(obj)
             if const_enum_data is not None:
-                enum_values, varnames, enum_type, nullable = const_enum_data
-                synthetic_obj = self._create_synthetic_enum_obj(obj, enum_values, varnames, enum_type, nullable)
+                enum_values, enum_type, nullable = const_enum_data
+                synthetic_obj = self._create_synthetic_enum_obj(obj, enum_values, enum_type, nullable)
                 if not self.should_parse_enum_as_literal(synthetic_obj):
                     self.parse_enum(name, synthetic_obj, path)
                 else:

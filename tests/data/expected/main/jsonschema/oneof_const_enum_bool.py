@@ -8,5 +8,5 @@ from enum import Enum
 
 
 class BooleanFlag(Enum):
-    boolean_True = True
-    boolean_False = False
+    bool_True = True
+    bool_False = False

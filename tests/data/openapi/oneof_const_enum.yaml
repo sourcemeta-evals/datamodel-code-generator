@@ -1,0 +1,16 @@
+openapi: "3.0.0"
+components:
+  schemas:
+    NodeJsMode:
+      title: NodeJS mode
+      type: string
+      oneOf:
+        - const: npm
+        - const: yarn
+    Config:
+      type: object
+      properties:
+        mode:
+          $ref: '#/components/schemas/NodeJsMode'
+      required:
+        - mode

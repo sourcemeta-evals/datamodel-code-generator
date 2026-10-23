@@ -1,0 +1,7 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "NamedConsts",
+  "type": "string",
+  "x-enum-varnames": ["ALPHA", "BETA"],
+  "oneOf": [{ "const": "a" }, { "const": "b" }]
+}
