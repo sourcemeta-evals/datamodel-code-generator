@@ -1986,6 +1986,18 @@ def test_main_jsonschema_oneof_const_mixed_values(output_file: Path) -> None:
     )
 
 
+def test_main_jsonschema_oneof_const_use_default_required(output_file: Path) -> None:
+    """Test a const union without a schema default stays required under --use-default."""
+    run_main_and_assert(
+        input_path=JSON_SCHEMA_DATA_PATH / "oneof_const_enum.yaml",
+        output_path=output_file,
+        input_file_type="jsonschema",
+        assert_func=assert_file_content,
+        expected_file="oneof_const_use_default_required.py",
+        extra_args=["--enum-field-as-literal", "all", "--use-default"],
+    )
+
+
 def test_main_jsonschema_oneof_const_enum_infer_type(output_file: Path) -> None:
     """Test oneOf with const values and inferred type."""
     run_main_and_assert(

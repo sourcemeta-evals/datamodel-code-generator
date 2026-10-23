@@ -798,16 +798,21 @@ class JsonSchemaParser(Parser):
     ) -> JsonSchemaObject:
         """Create a synthetic JsonSchemaObject for enum parsing."""
         final_enum = [*enum_values, None] if nullable else enum_values
-        # `type` is omitted rather than passed as None, because the field's
-        # validator rewrites a None type to the string "null"
-        optional_type = {"type": enum_type} if enum_type is not None else {}
+        # Both keys are omitted rather than passed as None. A None `type` is
+        # rewritten to the string "null" by the field's validator, and passing
+        # `default` at all marks the schema as having one, which would make a
+        # required root optional under apply_default_values_for_required_fields.
+        optional_keys: dict[str, Any] = {}
+        if enum_type is not None:
+            optional_keys["type"] = enum_type
+        if original.has_default:
+            optional_keys["default"] = original.default
 
         return self.SCHEMA_OBJECT_TYPE(
             enum=final_enum,
             title=original.title,
             description=original.description,
-            default=original.default if original.has_default else None,
-            **optional_type,
+            **optional_keys,
         )
 
     def is_constraints_field(self, obj: JsonSchemaObject) -> bool:
