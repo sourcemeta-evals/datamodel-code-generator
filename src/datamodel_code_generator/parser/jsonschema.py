@@ -1592,6 +1592,18 @@ class JsonSchemaParser(Parser):
                     self.model_resolver.add(path, name, class_name=True, loaded=True)
                     union_models.extend(d.reference for d in self.parse_one_of(name, all_of_item, path) if d.reference)
 
+    def _is_enum_like_ref_target(self, ref: str) -> bool:
+        """Check whether a local reference points at a schema that renders as an enum."""
+        target = get_model_by_path(self.raw_obj, ref[2:].split("/"))
+        if not isinstance(target, dict):  # pragma: no cover
+            return False
+        if target.get("enum"):
+            return True
+        # A const-only union renders as an enum too, so it may take the same
+        # single-reference shortcut. Eligibility is asked of the shared entry
+        # point rather than re-derived from the raw mapping.
+        return self._const_enum_data(self.SCHEMA_OBJECT_TYPE.parse_obj(target)) is not None
+
     def parse_all_of(
         self,
         name: str,
@@ -1605,7 +1617,7 @@ class JsonSchemaParser(Parser):
             if (
                 single_obj.ref
                 and single_obj.ref_type == JSONReference.LOCAL
-                and get_model_by_path(self.raw_obj, single_obj.ref[2:].split("/")).get("enum")
+                and self._is_enum_like_ref_target(single_obj.ref)
             ):
                 return self.get_ref_data_type(single_obj.ref)
 
