@@ -878,6 +878,26 @@ def test_extract_const_enum_null_branch_marks_nullable_and_is_ignored() -> None:
     assert nullable is True
 
 
+def test_extract_const_enum_parent_type_list_with_null_non_string() -> None:
+    """Parent type list of [integer, null] keeps the null in the type instead."""
+    items = [_make_const_obj(1), _make_const_obj(2)]
+    result = JsonSchemaParser._extract_const_enum_from_combined(items, ["integer", "null"])
+    assert result is not None
+    _, final_type, nullable = result
+    assert final_type == ["integer", "null"]
+    assert nullable is False
+
+
+def test_extract_const_enum_null_const_branch_marks_nullable() -> None:
+    """A {const: null} branch sets nullable and is not added to enum values."""
+    items = [_make_const_obj("a"), _make_const_obj(None)]
+    result = JsonSchemaParser._extract_const_enum_from_combined(items, "string")
+    assert result is not None
+    enum_values, _, nullable = result
+    assert enum_values == ["a"]
+    assert nullable is True
+
+
 def test_extract_const_enum_ref_sibling_rejects_pure_const() -> None:
     """A branch with const plus $ref is not a pure const and triggers fallback."""
     items = [
