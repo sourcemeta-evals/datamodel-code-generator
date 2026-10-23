@@ -1201,8 +1201,11 @@ class Parser(ABC):
 
         An assignment-based alias evaluates its value eagerly, so a reference
         to an alias defined further down the module raises `NameError`. Python
-        3.12 `type` statements defer evaluation and are left alone.
+        3.12 `type` statements defer evaluation and are left alone. An alias in
+        another module keeps the qualified name its import gave it, as its
+        short name is not bound here.
         """
+        module_aliases = {model.path for model in models if isinstance(model, TypeAliasBase)}
         rendered_aliases: set[str] = set()
 
         for model in models:
@@ -1221,6 +1224,8 @@ class Parser(ABC):
                     if not isinstance(source, TypeAliasBase):
                         continue
                     if isinstance(source, TypeStatement):  # pragma: no cover
+                        continue
+                    if source.path not in module_aliases:
                         continue
                     name = data_type.reference.short_name
                     if name not in rendered_aliases:

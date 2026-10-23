@@ -1,4 +1,4 @@
-"""Runtime checks for generated type aliases: recursion and model reuse.
+"""Runtime checks for generated type aliases: recursion, model reuse and imports.
 
 A snapshot cannot express that generated code imports and validates, so these
 tests execute the generated module instead of comparing it against an expected
@@ -67,6 +67,19 @@ DUPLICATE_SCHEMA: dict[str, Any] = {
     },
 }
 
+PACKAGE_COMMON: dict[str, Any] = {
+    "$schema": "http://json-schema.org/draft-07/schema#",
+    "definitions": {"Code": {"type": "string", "maxLength": 4}},
+}
+
+PACKAGE_MAIN: dict[str, Any] = {
+    "$schema": "http://json-schema.org/draft-07/schema#",
+    "title": "Main",
+    "type": "object",
+    "properties": {"codes": {"$ref": "#/definitions/Codes"}},
+    "definitions": {"Codes": {"type": "array", "items": {"$ref": "common.json#/definitions/Code"}}},
+}
+
 DUPLICATE_UNION_GRAPHQL = """
 type Person {
   name: String
@@ -120,6 +133,41 @@ def generate_module(tmp_path: Path, source: dict[str, Any] | str, *arguments: st
     return output_file
 
 
+def generate_package(tmp_path: Path) -> Path:
+    """Generate a package from two schema files and return the output directory."""
+    input_directory = tmp_path / "schemas"
+    input_directory.mkdir()
+    (input_directory / "common.json").write_text(json.dumps(PACKAGE_COMMON), encoding="utf-8")
+    (input_directory / "main.json").write_text(json.dumps(PACKAGE_MAIN), encoding="utf-8")
+    output_directory = tmp_path / "generated"
+    return_code: Exit = main([
+        "--input",
+        str(input_directory),
+        "--input-file-type",
+        "jsonschema",
+        "--output",
+        str(output_directory),
+        "--output-model-type",
+        "pydantic_v2.BaseModel",
+        "--target-python-version",
+        "3.9",
+        "--use-type-alias",
+    ])
+    assert return_code == Exit.OK
+    return output_directory
+
+
+def import_package_module(output_directory: Path, module_name: str) -> Any:
+    """Import one module of a generated package, so imported names resolve here."""
+    sys.path.insert(0, str(output_directory.parent))
+    try:
+        return importlib.import_module(f"{output_directory.name}.{module_name}")
+    finally:
+        sys.path.remove(str(output_directory.parent))
+        for name in [name for name in sys.modules if name.split(".")[0] == output_directory.name]:
+            del sys.modules[name]
+
+
 def import_module(output_file: Path, name: str) -> Any:
     """Import a generated module by path, so unresolved names surface here."""
     specification = importlib.util.spec_from_file_location(name, output_file)
@@ -164,9 +212,7 @@ def test_recursive_alias_annotation_quotes_its_self_reference(tmp_path: Path) ->
         "--target-python-version",
         "3.9",
     )
-    definition = next(
-        line for line in output_file.read_text(encoding="utf-8").splitlines() if line.startswith("Node")
-    )
+    definition = next(line for line in output_file.read_text(encoding="utf-8").splitlines() if line.startswith("Node"))
     assert '"Node"' in definition or "'Node'" in definition
 
 
@@ -271,3 +317,16 @@ def test_reuse_model_renders_duplicate_graphql_unions_natively(tmp_path: Path) -
         line for line in output_file.read_text(encoding="utf-8").splitlines() if line.startswith("type Creature")
     )
     assert "Being" in definition or "Person" in definition
+
+
+def test_imported_alias_keeps_its_module_qualification(tmp_path: Path) -> None:
+    """An alias referring to another module's alias keeps the name its import binds.
+
+    The short name is not bound in the referring module, so quoting it there
+    leaves a model that cannot be built.
+    """
+    output_directory = generate_package(tmp_path)
+    module = import_package_module(output_directory, "main")
+    assert module.Main(codes=["ok"]).codes == ["ok"]
+    with pytest.raises(ValidationError):
+        module.Main(codes=["too long"])
