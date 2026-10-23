@@ -51,6 +51,27 @@ type Query {
 }
 """
 
+NULLABLE_ARRAY_OPENAPI = """openapi: 3.0.0
+info:
+  title: Nullable array alias
+  version: 1.0.0
+paths: {}
+components:
+  schemas:
+    Tags:
+      type: array
+      nullable: true
+      minItems: 1
+      maxItems: 2
+      items:
+        type: string
+    Holder:
+      type: object
+      properties:
+        tags:
+          $ref: '#/components/schemas/Tags'
+"""
+
 NON_PYDANTIC_MODELS = ["dataclasses.dataclass", "typing.TypedDict", "msgspec.Struct"]
 
 
@@ -102,6 +123,29 @@ def generate_graphql(tmp_path: Path, output_model: str, target: str, *arguments:
         str(input_file),
         "--input-file-type",
         "graphql",
+        "--output",
+        str(output_file),
+        "--output-model-type",
+        output_model,
+        "--target-python-version",
+        target,
+        *arguments,
+    ])
+    assert return_code == Exit.OK
+    return output_file.read_text(encoding="utf-8")
+
+
+def generate_openapi(tmp_path: Path, source: str, output_model: str, target: str, *arguments: str) -> str:
+    """Generate from an inline OpenAPI document and return the output."""
+    skip_unless_black_supports(target)
+    input_file = tmp_path / "api.yaml"
+    input_file.write_text(source, encoding="utf-8")
+    output_file = tmp_path / "output.py"
+    return_code: Exit = main([
+        "--input",
+        str(input_file),
+        "--input-file-type",
+        "openapi",
         "--output",
         str(output_file),
         "--output-model-type",
@@ -236,3 +280,15 @@ def test_graphql_unions_use_the_type_statement_on_python_312(arguments: tuple[st
     assert "Person" in definition
     assert "Pet" in definition
     assert "TypeAliasType" not in definition
+
+
+def test_nullable_array_alias_keeps_its_length_constraints(tmp_path: Path) -> None:
+    """A nullable array alias keeps the length limits its schema declares.
+
+    An alias whose field is not required can lose its metadata, which leaves the
+    module importable while validating anything. The base commit keeps the limits.
+    """
+    generated = generate_openapi(tmp_path, NULLABLE_ARRAY_OPENAPI, "pydantic_v2.BaseModel", "3.9", "--use-type-alias")
+    definition = alias_definition(generated, "Tags")
+    assert "min_length=1" in definition
+    assert "max_length=2" in definition
