@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import enum as _enum
 import json
+import re
 from collections import defaultdict
 from collections.abc import Iterable
 from contextlib import contextmanager, suppress
@@ -75,7 +76,6 @@ from datamodel_code_generator.util import (
     field_validator,
     model_validator,
 )
-import re
 
 if PYDANTIC_V2:
     from pydantic import ConfigDict
@@ -855,9 +855,7 @@ class JsonSchemaParser(Parser):
     # -----------------------------------------------------------------------
 
     @classmethod
-    def extract_const_enum_from_combined(
-        cls, items, parent_type
-    ):
+    def extract_const_enum_from_combined(cls, items, parent_type):
         enum_values: list[Any] = []
         varnames: list[str] = []
         nullable = False
@@ -2111,7 +2109,9 @@ class JsonSchemaParser(Parser):
                 synthetic_obj = self.create_synthetic_enum_obj(item, enum_values, varnames, enum_type, nullable)
                 if self.should_parse_enum_as_literal(synthetic_obj):
                     return self.data_type(literals=[i for i in synthetic_obj.enum if i is not None])
-                return self.generate_const_enum_class(name, synthetic_obj, get_special_path("enum", path), singular_name=singular_name)
+                return self.generate_const_enum_class(
+                    name, synthetic_obj, get_special_path("enum", path), singular_name=singular_name
+                )
             return self.data_type(data_types=self.parse_any_of(name, item, get_special_path("anyOf", path)))
         if item.oneOf:
             const_enum_data = self.extract_const_enum_from_combined(item.oneOf, item.type)
@@ -2120,7 +2120,9 @@ class JsonSchemaParser(Parser):
                 synthetic_obj = self.create_synthetic_enum_obj(item, enum_values, varnames, enum_type, nullable)
                 if self.should_parse_enum_as_literal(synthetic_obj):
                     return self.data_type(literals=[i for i in synthetic_obj.enum if i is not None])
-                return self.generate_const_enum_class(name, synthetic_obj, get_special_path("enum", path), singular_name=singular_name)
+                return self.generate_const_enum_class(
+                    name, synthetic_obj, get_special_path("enum", path), singular_name=singular_name
+                )
             return self.data_type(data_types=self.parse_one_of(name, item, get_special_path("oneOf", path)))
         if item.allOf:
             all_of_path = get_special_path("allOf", path)
