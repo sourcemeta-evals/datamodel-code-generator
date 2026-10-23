@@ -1963,6 +1963,18 @@ def test_main_jsonschema_oneof_const_enum_literal(output_file: Path) -> None:
     )
 
 
+def test_main_jsonschema_oneof_const_nullable_literal(output_file: Path) -> None:
+    """Test a nullable oneOf of const values stays optional as a Literal type."""
+    run_main_and_assert(
+        input_path=JSON_SCHEMA_DATA_PATH / "oneof_const_enum_nullable.yaml",
+        output_path=output_file,
+        input_file_type="jsonschema",
+        assert_func=assert_file_content,
+        expected_file="oneof_const_nullable_literal.py",
+        extra_args=["--enum-field-as-literal", "all"],
+    )
+
+
 def test_main_jsonschema_oneof_const_enum_infer_type(output_file: Path) -> None:
     """Test oneOf with const values and inferred type."""
     run_main_and_assert(
