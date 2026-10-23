@@ -42,6 +42,21 @@ RECURSIVE_SCHEMA: dict[str, Any] = {
     },
 }
 
+LITERAL_RECURSIVE_SCHEMA: dict[str, Any] = {
+    "$schema": "http://json-schema.org/draft-07/schema#",
+    "title": "Root",
+    "type": "object",
+    "properties": {"tree": {"$ref": "#/definitions/Node"}},
+    "definitions": {
+        "Node": {
+            "anyOf": [
+                {"type": "string", "enum": ["a Node value", "other"]},
+                {"type": "array", "items": {"$ref": "#/definitions/Node"}},
+            ]
+        }
+    },
+}
+
 MUTUAL_SCHEMA: dict[str, Any] = {
     "$schema": "http://json-schema.org/draft-07/schema#",
     "title": "Root",
@@ -297,6 +312,28 @@ def test_recursive_alias_annotation_defers_its_self_reference(tmp_path: Path) ->
     generated = output_file.read_text(encoding="utf-8")
     assert {"str", "Node"} <= alias_reference_names(generated, "Node")
     assert alias_defers_its_self_reference(generated, "Node")
+
+
+def test_recursive_alias_keeps_its_literal_values(tmp_path: Path) -> None:
+    """A recursive alias keeps accepting a literal value that holds its own name.
+
+    Deferring the self-reference by rewriting the rendered type hint reaches the
+    literal as well, which narrows the alias to a value the schema never declared.
+    """
+    output_file = generate_module(
+        tmp_path,
+        LITERAL_RECURSIVE_SCHEMA,
+        "--output-model-type",
+        "pydantic_v2.BaseModel",
+        "--target-python-version",
+        "3.9",
+        "--enum-field-as-literal",
+        "all",
+    )
+    module = import_module(output_file, "eval_alias_recursive_literal")
+    assert module.Root(tree=["a Node value", ["other"]]).tree == ["a Node value", ["other"]]
+    with pytest.raises(ValidationError):
+        module.Root(tree='a "Node" value')
 
 
 def test_mutually_recursive_aliases_import_and_validate(tmp_path: Path) -> None:
