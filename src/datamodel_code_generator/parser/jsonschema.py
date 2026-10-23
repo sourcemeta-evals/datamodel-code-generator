@@ -731,10 +731,9 @@ class JsonSchemaParser(Parser):
     @classmethod
     def _extract_const_enum_from_combined(  # noqa: PLR0912
         cls, items: list[JsonSchemaObject], parent_type: str | list[str] | None
-    ) -> tuple[list[Any], list[str], str | None, bool] | None:
+    ) -> tuple[list[Any], str | None, bool] | None:
         """Extract enum values from oneOf/anyOf const pattern."""
         enum_values: list[Any] = []
-        varnames: list[str] = []
         nullable = False
         inferred_type: str | None = None
 
@@ -757,11 +756,6 @@ class JsonSchemaParser(Parser):
 
             const_value = item.extras["const"]
             enum_values.append(const_value)
-
-            if item.title:
-                varnames.append(item.title)
-            else:
-                varnames.append(str(const_value))
 
             if inferred_type is None and const_value is not None:
                 if isinstance(const_value, str):
@@ -787,26 +781,23 @@ class JsonSchemaParser(Parser):
         else:
             final_type = inferred_type
 
-        return (enum_values, varnames, final_type, nullable)
+        return (enum_values, final_type, nullable)
 
     def _create_synthetic_enum_obj(
         self,
         original: JsonSchemaObject,
         enum_values: list[Any],
-        varnames: list[str],
         enum_type: str | None,
         nullable: bool,  # noqa: FBT001
     ) -> JsonSchemaObject:
         """Create a synthetic JsonSchemaObject for enum parsing."""
         final_enum = [*enum_values, None] if nullable else enum_values
-        final_varnames = varnames if len(varnames) == len(enum_values) else []
 
         return self.SCHEMA_OBJECT_TYPE(
             type=enum_type,
             enum=final_enum,
             title=original.title,
             description=original.description,
-            x_enum_varnames=final_varnames,
             default=original.default if original.has_default else None,
         )
 
@@ -1870,8 +1861,8 @@ class JsonSchemaParser(Parser):
         if item.anyOf:
             const_enum_data = self._extract_const_enum_from_combined(item.anyOf, item.type)
             if const_enum_data is not None:
-                enum_values, varnames, enum_type, nullable = const_enum_data
-                synthetic_obj = self._create_synthetic_enum_obj(item, enum_values, varnames, enum_type, nullable)
+                enum_values, enum_type, nullable = const_enum_data
+                synthetic_obj = self._create_synthetic_enum_obj(item, enum_values, enum_type, nullable)
                 if self.should_parse_enum_as_literal(synthetic_obj):
                     return self.parse_enum_as_literal(synthetic_obj)
                 return self.parse_enum(name, synthetic_obj, get_special_path("enum", path), singular_name=singular_name)
@@ -1879,8 +1870,8 @@ class JsonSchemaParser(Parser):
         if item.oneOf:
             const_enum_data = self._extract_const_enum_from_combined(item.oneOf, item.type)
             if const_enum_data is not None:
-                enum_values, varnames, enum_type, nullable = const_enum_data
-                synthetic_obj = self._create_synthetic_enum_obj(item, enum_values, varnames, enum_type, nullable)
+                enum_values, enum_type, nullable = const_enum_data
+                synthetic_obj = self._create_synthetic_enum_obj(item, enum_values, enum_type, nullable)
                 if self.should_parse_enum_as_literal(synthetic_obj):
                     return self.parse_enum_as_literal(synthetic_obj)
                 return self.parse_enum(name, synthetic_obj, get_special_path("enum", path), singular_name=singular_name)
@@ -2082,8 +2073,8 @@ class JsonSchemaParser(Parser):
             combined_items = obj.anyOf or obj.oneOf
             const_enum_data = self._extract_const_enum_from_combined(combined_items, obj.type)
             if const_enum_data is not None:  # pragma: no cover
-                enum_values, varnames, enum_type, nullable = const_enum_data
-                synthetic_obj = self._create_synthetic_enum_obj(obj, enum_values, varnames, enum_type, nullable)
+                enum_values, enum_type, nullable = const_enum_data
+                synthetic_obj = self._create_synthetic_enum_obj(obj, enum_values, enum_type, nullable)
                 if self.should_parse_enum_as_literal(synthetic_obj):
                     data_type = self.parse_enum_as_literal(synthetic_obj)
                 else:
@@ -2529,8 +2520,8 @@ class JsonSchemaParser(Parser):
             combined_items = obj.oneOf or obj.anyOf
             const_enum_data = self._extract_const_enum_from_combined(combined_items, obj.type)
             if const_enum_data is not None:
-                enum_values, varnames, enum_type, nullable = const_enum_data
-                synthetic_obj = self._create_synthetic_enum_obj(obj, enum_values, varnames, enum_type, nullable)
+                enum_values, enum_type, nullable = const_enum_data
+                synthetic_obj = self._create_synthetic_enum_obj(obj, enum_values, enum_type, nullable)
                 if not self.should_parse_enum_as_literal(synthetic_obj):
                     self.parse_enum(name, synthetic_obj, path)
                 else:
