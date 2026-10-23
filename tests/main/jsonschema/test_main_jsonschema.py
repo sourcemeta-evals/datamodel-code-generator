@@ -2064,6 +2064,17 @@ def test_main_jsonschema_oneof_const_all_of_ref(output_file: Path) -> None:
     )
 
 
+def test_main_jsonschema_oneof_const_type_list_branch_const(output_file: Path) -> None:
+    """Test a pure const branch declaring a list of types parses without crashing."""
+    run_main_and_assert(
+        input_path=JSON_SCHEMA_DATA_PATH / "oneof_const_type_list_branch_const.json",
+        output_path=output_file,
+        input_file_type="jsonschema",
+        assert_func=assert_file_content,
+        expected_file="oneof_const_type_list_branch_const.py",
+    )
+
+
 def test_main_jsonschema_oneof_const_enum_infer_type(output_file: Path) -> None:
     """Test oneOf with const values and inferred type."""
     run_main_and_assert(
