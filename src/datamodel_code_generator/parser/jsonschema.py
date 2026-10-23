@@ -2084,7 +2084,17 @@ class JsonSchemaParser(Parser):
         if self.use_title_as_name and item.title:
             name = sanitize_module_name(item.title, treat_dot_as_module=self.treat_dot_as_module)
             singular_name = False
-        if parent and not item.enum and item.has_constraint and (parent.has_constraint or self.field_constraints):
+        const_union_branches = item.anyOf or item.oneOf
+        item_has_fixed_values = bool(item.enum) or (
+            bool(const_union_branches)
+            and self._extract_const_enum_from_combined(const_union_branches, item.type) is not None
+        )
+        if (
+            parent
+            and not item_has_fixed_values
+            and item.has_constraint
+            and (parent.has_constraint or self.field_constraints)
+        ):
             root_type_path = get_special_path("array", path)
             return self.parse_root_type(
                 self.model_resolver.add(
