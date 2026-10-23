@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import importlib.util
 import json
 from collections import defaultdict
 from pathlib import Path
@@ -44,6 +45,18 @@ if TYPE_CHECKING:
 
 
 FixtureRequest = pytest.FixtureRequest
+
+_JSON_TYPE_NAMES = {bool: "boolean", int: "integer", float: "number", str: "string"}
+
+
+def _const_branches(values: list[Any], nullable: bool, branch_type: str | None) -> list[dict[str, Any]]:
+    """Build const branches for the given values, optionally typed and followed by a null branch."""
+    branches: list[dict[str, Any]] = [
+        {"const": value} | ({"type": _JSON_TYPE_NAMES[type(value)]} if branch_type else {}) for value in values
+    ]
+    if nullable:
+        branches.append({"type": "null"})
+    return branches
 
 
 @pytest.mark.benchmark
@@ -2077,67 +2090,144 @@ def test_main_jsonschema_oneof_const_type_list_branch_const(output_file: Path) -
     )
 
 
-def test_main_jsonschema_oneof_const_null_type_list_branch(output_file: Path) -> None:
-    """Test a null alternative written as a single-entry type list keeps the enum optional."""
+def test_main_jsonschema_oneof_const_type_list_branch_multi(output_file: Path) -> None:
+    """Test a const branch declaring several types still contributes its fixed value."""
     run_main_and_assert(
-        input_path=JSON_SCHEMA_DATA_PATH / "oneof_const_null_type_list_branch.json",
+        input_path=JSON_SCHEMA_DATA_PATH / "oneof_const_type_list_branch_multi.json",
         output_path=output_file,
         input_file_type="jsonschema",
         assert_func=assert_file_content,
-        expected_file="oneof_const_null_type_list_branch.py",
+        expected_file="oneof_const_type_list_branch_multi.py",
     )
 
 
-def test_main_jsonschema_oneof_const_existing_enum(output_file: Path) -> None:
-    """Test a schema with its own enum beside a const union keeps the narrower restriction."""
+def test_main_jsonschema_oneof_const_unrestricted_branch(output_file: Path) -> None:
+    """Test an empty or annotation-only alternative keeps the union unrestricted."""
     run_main_and_assert(
-        input_path=JSON_SCHEMA_DATA_PATH / "oneof_const_existing_enum.json",
+        input_path=JSON_SCHEMA_DATA_PATH / "oneof_const_unrestricted_branch.json",
         output_path=output_file,
         input_file_type="jsonschema",
         assert_func=assert_file_content,
-        expected_file="oneof_const_existing_enum.py",
+        expected_file="oneof_const_unrestricted_branch.py",
     )
 
 
-def test_main_jsonschema_oneof_const_constrained_items(output_file: Path) -> None:
-    """Test constrained array items holding a const union generate the enum, not a root type."""
-    run_main_and_assert(
-        input_path=JSON_SCHEMA_DATA_PATH / "oneof_const_constrained_items.json",
-        output_path=output_file,
-        input_file_type="jsonschema",
-        assert_func=assert_file_content,
-        expected_file="oneof_const_constrained_items.py",
-        extra_args=["--field-constraints"],
+@pytest.mark.parametrize("annotation", [{"title": "Npm"}, {"default": "npm"}, {"examples": ["npm"]}])
+@pytest.mark.parametrize("keyword", ["oneOf", "anyOf"])
+def test_main_jsonschema_oneof_const_annotated_branches(
+    annotation: dict[str, Any], keyword: str, tmp_path: Path
+) -> None:
+    """Test an annotation on a const branch leaves the fixed value set intact."""
+    outputs = []
+    for value_schema in (
+        {keyword: [{"const": "npm", **annotation}, {"const": "yarn"}]},
+        {"enum": ["npm", "yarn"]},
+    ):
+        schema = tmp_path / "schema.json"
+        schema.write_text(json.dumps({"title": "Mode", "type": "string", **value_schema}), encoding="utf-8")
+        output = tmp_path / "model.py"
+        assert (
+            main([
+                "--input",
+                str(schema),
+                "--output",
+                str(output),
+                "--input-file-type",
+                "jsonschema",
+                "--disable-timestamp",
+            ])
+            == Exit.OK
+        )
+        outputs.append(output.read_text(encoding="utf-8"))
+
+    assert outputs[0] == outputs[1]
+
+
+@pytest.mark.parametrize("extra_args", [[], ["--use-subclass-enum"]])
+@pytest.mark.parametrize("branch_type", [None, "declared"])
+@pytest.mark.parametrize("nullable", [False, True])
+@pytest.mark.parametrize("values", [[1, 2], [1.5, 2.5], ["npm", "yarn"], [1, "npm"]])
+@pytest.mark.parametrize("keyword", ["oneOf", "anyOf"])
+def test_main_jsonschema_oneof_const_enum_infer_type_imports(
+    keyword: str,
+    values: list[Any],
+    nullable: bool,
+    branch_type: str | None,
+    extra_args: list[str],
+    tmp_path: Path,
+) -> None:
+    """Test an untyped const union generates a module that imports, whatever its values are."""
+    schema = tmp_path / "schema.json"
+    schema.write_text(
+        json.dumps({"title": "Mode", keyword: _const_branches(values, nullable, branch_type)}), encoding="utf-8"
     )
+    output = tmp_path / "model.py"
+    assert (
+        main([
+            "--input",
+            str(schema),
+            "--output",
+            str(output),
+            "--input-file-type",
+            "jsonschema",
+            "--disable-timestamp",
+            # The installed Pydantic is the one the generated module imports, so
+            # the backend has to match it for importing to mean anything.
+            "--output-model-type",
+            "pydantic_v2.BaseModel",
+            *extra_args,
+        ])
+        == Exit.OK
+    )
+    module_spec = importlib.util.spec_from_file_location("generated_const_union", output)
+    assert module_spec is not None
+    assert module_spec.loader is not None
+    module_spec.loader.exec_module(importlib.util.module_from_spec(module_spec))
 
 
 @pytest.mark.parametrize("literal_args", [[], ["--enum-field-as-literal", "all"]])
 @pytest.mark.parametrize("keyword", ["oneOf", "anyOf"])
 @pytest.mark.parametrize(
-    ("parent", "values", "extra_args"),
+    ("parent", "values", "nullable", "branch_type", "extra_args"),
     [
-        ({"type": "string"}, ["npm", "yarn"], []),
-        ({"type": ["string"]}, ["npm", "yarn"], []),
-        ({"type": ["integer"]}, [1, 2], ["--use-subclass-enum"]),
-        ({}, [1, 2], ["--use-subclass-enum"]),
+        ({"type": "string"}, ["npm", "yarn"], False, None, []),
+        ({"type": ["string"]}, ["npm", "yarn"], False, None, []),
+        ({"type": ["integer"]}, [1, 2], False, None, ["--use-subclass-enum"]),
+        ({"type": ["string", "null"]}, ["npm", "yarn"], False, None, []),
+        ({}, [1, 2], False, None, ["--use-subclass-enum"]),
+        ({}, [1, 2], True, None, ["--use-subclass-enum"]),
+        ({}, [1, 2], False, "declared", ["--use-subclass-enum"]),
+        ({}, [1, "npm"], False, "declared", []),
+        ({}, ["npm", "yarn"], True, None, []),
     ],
 )
 def test_main_jsonschema_const_union_matches_equivalent_enum(
     parent: dict[str, Any],
     values: list[Any],
+    nullable: bool,
+    branch_type: str | None,
     extra_args: list[str],
     keyword: str,
     literal_args: list[str],
     tmp_path: Path,
 ) -> None:
     """Test a const union generates exactly what the equivalent enum schema generates."""
+    enum_parent = dict(parent)
+    enum_values = list(values)
+    if nullable or "null" in enum_parent.get("type", []):
+        enum_values.append(None)
+        remaining = [t for t in enum_parent.get("type", []) if t != "null"]
+        if remaining:
+            enum_parent["type"] = remaining[0] if len(remaining) == 1 else remaining
+        else:
+            enum_parent.pop("type", None)
     outputs = []
-    for value_schema in (
-        {keyword: [{"const": value} for value in values]},
-        {"enum": values},
+    for metadata, value_schema in (
+        (parent, {keyword: _const_branches(values, nullable, branch_type)}),
+        (enum_parent, {"enum": enum_values}),
     ):
         schema = tmp_path / "schema.json"
-        schema.write_text(json.dumps({"title": "Mode", **parent, **value_schema}), encoding="utf-8")
+        schema.write_text(json.dumps({"title": "Mode", **metadata, **value_schema}), encoding="utf-8")
         output = tmp_path / "model.py"
         assert (
             main([
