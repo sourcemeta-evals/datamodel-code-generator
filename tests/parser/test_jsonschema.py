@@ -889,13 +889,15 @@ def test_extract_const_enum_parent_type_list_with_null_marks_nullable() -> None:
 
 
 def test_extract_const_enum_parent_type_list_with_null_non_string() -> None:
-    """Parent type list of [integer, null] keeps the null in the type instead."""
+    """Parent type list of [integer, null] keeps the null in the type and stays nullable."""
     items = [_make_const_obj(1), _make_const_obj(2)]
     result = JsonSchemaParser._extract_const_enum_from_combined(items, ["integer", "null"])
     assert result is not None
     _, final_type, nullable = result
     assert final_type == ["integer", "null"]
-    assert nullable is False
+    # The type admits null, so the enum carries a null member too: the list is
+    # what keeps it unspecialised, and the member is what admits null.
+    assert nullable is True
 
 
 def test_extract_const_enum_null_const_branch_marks_nullable() -> None:
