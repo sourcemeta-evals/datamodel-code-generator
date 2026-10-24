@@ -468,6 +468,17 @@ EXCLUDE_FIELD_KEYS = (
 # `extras`, governs what the branch admits, so the union falls back instead of
 # guessing which keyword wins. Branch keys are matched against both the set
 # fields and `extras`, since annotations are kept in both.
+# The JSON Schema type names that admit a value, by the value's Python type.
+# `bool` precedes `int` because it is a subclass of it.
+JSON_TYPES_BY_VALUE: tuple[tuple[type, tuple[str, ...]], ...] = (
+    (type(None), ("null",)),
+    (bool, ("boolean",)),
+    (int, ("integer", "number")),
+    (float, ("number",)),
+    (str, ("string",)),
+    (list, ("array",)),
+)
+
 CONST_BRANCH_ANNOTATION_KEYS: set[str] = {
     "$comment",
     "const",
@@ -750,6 +761,18 @@ class JsonSchemaParser(Parser):
         )
 
     @classmethod
+    def _type_admits(cls, declared: str | list[str] | None, value: Any) -> bool:
+        """Check whether a declared JSON Schema type admits a value."""
+        if declared is None:
+            return True
+        names = {declared} if isinstance(declared, str) else set(declared)
+        if isinstance(value, float) and value.is_integer():
+            # An integer type admits a number whose fractional part is zero.
+            return bool(names & {"integer", "number"})
+        admitted = next((a for t, a in JSON_TYPES_BY_VALUE if isinstance(value, t)), ("object",))
+        return bool(names & set(admitted))
+
+    @classmethod
     def _is_plain_const_branch(cls, item: JsonSchemaObject) -> bool:
         """Check whether every keyword on a branch is an annotation, its `const`, its `type` or `enum: [null]`."""
         if item.__fields_set__ - CONST_BRANCH_ANNOTATION_KEYS - {"enum"}:
@@ -762,7 +785,7 @@ class JsonSchemaParser(Parser):
     def _extract_const_enum_from_combined(
         cls, items: list[JsonSchemaObject], parent_type: str | list[str] | None
     ) -> tuple[list[Any], str | list[str] | None, bool] | None:
-        """Extract the values, the type and the nullability a `oneOf`/`anyOf` const pattern implies."""
+        """Extract the fixed values of a `oneOf`/`anyOf` const pattern, with the type and nullability to use."""
         enum_values: list[Any] = []
         nullable = False
 
@@ -770,31 +793,35 @@ class JsonSchemaParser(Parser):
             if not cls._is_plain_const_branch(item):
                 return None
 
+            # A branch has to admit the value it pins. One whose declared
+            # `type`, or whose sibling `enum`, forbids its own `const` admits
+            # nothing at all, so the union falls back rather than carrying a
+            # value no branch allows. The test is what the branch admits, not
+            # which keyword narrowed it, which is the same reason a `not` or an
+            # empty `enum` sends the union back.
+            if "const" in item.extras:
+                const_value = item.extras["const"]
+                # The allow-list leaves only `enum: [null]` here, which admits
+                # nothing beside a `const` that is not null.
+                enum_forbids = "enum" in item.__fields_set__ and const_value is not None
+                if enum_forbids or not cls._type_admits(item.type, const_value):
+                    return None
+                # A null member keeps the position its branch had, because
+                # `x-enum-varnames` names the values by position.
+                enum_values.append(const_value)
+                if const_value is None:
+                    nullable = True
+                continue
+
             # Every spelling of an alternative that admits nothing but null is
             # the same alternative, including `type: ["null"]`, which
-            # `type_has_null` already treats like the scalar spelling. Such a
-            # branch marks the enum nullable rather than contributing a value
-            # the enum has to carry.
-            item_type = item.type[0] if isinstance(item.type, list) and len(item.type) == 1 else item.type
-            admits_only_null = item_type == "null" or item.enum == [None]
-
-            if "const" not in item.extras:
-                if not admits_only_null:
-                    return None
-                nullable = True
-                continue
-
-            const_value = item.extras["const"]
-            if const_value is None:
-                nullable = True
-                continue
-            if admits_only_null:
-                # A branch admitting nothing but null, beside a `const` that is
-                # not null, admits nothing at all. It is not a fixed value, so
-                # the union falls back rather than carrying a value the branch
-                # itself forbids.
+            # `type_has_null` already treats like the scalar spelling.
+            item_types = [item.type] if isinstance(item.type, str) else item.type
+            only_null = item.enum == [None] or (item_types is not None and set(item_types) == {"null"})
+            if not only_null or not cls._type_admits(item.type, None):
                 return None
-            enum_values.append(const_value)
+            enum_values.append(None)
+            nullable = True
 
         if not enum_values and not nullable:  # pragma: no cover
             return None
@@ -846,7 +873,7 @@ class JsonSchemaParser(Parser):
         return self._extract_const_enum_from_combined(items, obj.type)
 
     def _has_fixed_value_set(self, obj: JsonSchemaObject) -> bool:
-        """Check whether a schema restricts its value with `enum` or a const-only union."""
+        """Check whether a schema carries enum values of its own or a const-only union."""
         return bool(obj.enum) or self._const_enum_data(obj) is not None
 
     def _create_synthetic_enum_obj(
@@ -872,7 +899,7 @@ class JsonSchemaParser(Parser):
         # IntEnum cannot be created from a null member. parse_enum drops the
         # member again for a string enum and marks the enum nullable instead.
         null_in_type = nullable and enum_type is not None and enum_type != "string"
-        base_dict["enum"] = [*enum_values, None] if nullable else enum_values
+        base_dict["enum"] = enum_values if None in enum_values else [*enum_values, None] if nullable else enum_values
         if enum_type is None:
             # The key is dropped rather than set to None, because the field's
             # validator rewrites a None type to the string "null".
@@ -1652,7 +1679,7 @@ class JsonSchemaParser(Parser):
                     union_models.extend(d.reference for d in self.parse_one_of(name, all_of_item, path) if d.reference)
 
     def _is_enum_like_ref_target(self, ref: str) -> bool:
-        """Check whether a local reference points at a schema that fixes its value set."""
+        """Check whether a local reference points at a schema carrying enum values or a const-only union."""
         target = get_model_by_path(self.raw_obj, ref[2:].split("/"))
         if not isinstance(target, dict):  # pragma: no cover
             return False
@@ -2351,10 +2378,10 @@ class JsonSchemaParser(Parser):
         for i, enum_part in enumerate(enum_times):
             if obj.type == "string" or isinstance(enum_part, str):
                 default = f"'{enum_part.translate(escape_characters)}'" if isinstance(enum_part, str) else enum_part
-                field_name = obj.x_enum_varnames[i] if obj.x_enum_varnames else str(enum_part)
+                field_name = obj.x_enum_varnames[i] if i < len(obj.x_enum_varnames) else str(enum_part)
             else:
                 default = enum_part
-                if obj.x_enum_varnames:
+                if i < len(obj.x_enum_varnames):
                     field_name = obj.x_enum_varnames[i]
                 elif isinstance(enum_part, dict):
                     field_name = self._get_field_name_from_dict_enum(enum_part, i)
