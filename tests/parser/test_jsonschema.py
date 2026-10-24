@@ -851,6 +851,29 @@ def _make_const_obj(value: Any, **extras: Any) -> JsonSchemaObject:
     return JsonSchemaObject.parse_obj({"const": value, **extras})
 
 
+@pytest.mark.parametrize(
+    ("declared", "value", "admits"),
+    [
+        (None, "a", True),
+        ("string", "a", True),
+        ("integer", "a", False),
+        ("integer", 1, True),
+        ("number", 1, True),
+        ("integer", 1.0, True),
+        ("integer", 1.5, False),
+        ("integer", True, False),
+        ("boolean", True, True),
+        (["string", "null"], None, True),
+        ("string", None, False),
+        ("array", [1], True),
+        ("object", {"a": 1}, True),
+    ],
+)
+def test_type_admits(declared: str | list[str] | None, value: Any, admits: bool) -> None:
+    """A declared type admits exactly the values its JSON type names cover."""
+    assert JsonSchemaParser._type_admits(declared, value) is admits
+
+
 def test_extract_const_enum_returns_none_when_no_items() -> None:
     """Empty items list yields no extraction."""
     result = JsonSchemaParser._extract_const_enum_from_combined([], None)
@@ -868,13 +891,15 @@ def test_extract_const_enum_pure_const_branches_extract_string() -> None:
     assert nullable is False
 
 
-def test_extract_const_enum_null_branch_marks_nullable_and_is_ignored() -> None:
-    """An explicit {type: null} branch sets nullable and is not added to enum values."""
+def test_extract_const_enum_null_branch_marks_nullable_and_keeps_its_place() -> None:
+    """An explicit {type: null} branch sets nullable and contributes a null value in its own position."""
     items = [_make_const_obj("a"), JsonSchemaObject.parse_obj({"type": "null"})]
     result = JsonSchemaParser._extract_const_enum_from_combined(items, "string")
     assert result is not None
     enum_values, _, nullable = result
-    assert enum_values == ["a"]
+    # The null keeps its branch position because `x-enum-varnames` names the
+    # values by position, so moving it renames the others.
+    assert enum_values == ["a", None]
     assert nullable is True
 
 
@@ -901,12 +926,12 @@ def test_extract_const_enum_parent_type_list_with_null_non_string() -> None:
 
 
 def test_extract_const_enum_null_const_branch_marks_nullable() -> None:
-    """A {const: null} branch sets nullable and is not added to enum values."""
+    """A {const: null} branch sets nullable and contributes a null value in its own position."""
     items = [_make_const_obj("a"), _make_const_obj(None)]
     result = JsonSchemaParser._extract_const_enum_from_combined(items, "string")
     assert result is not None
     enum_values, _, nullable = result
-    assert enum_values == ["a"]
+    assert enum_values == ["a", None]
     assert nullable is True
 
 
@@ -916,7 +941,7 @@ def test_extract_const_enum_null_enum_branch_marks_nullable() -> None:
     result = JsonSchemaParser._extract_const_enum_from_combined(items, "string")
     assert result is not None
     enum_values, _, nullable = result
-    assert enum_values == ["a"]
+    assert enum_values == ["a", None]
     assert nullable is True
 
 
@@ -969,6 +994,17 @@ def test_extract_const_enum_value_enum_sibling_rejects_pure_const() -> None:
     items = [_make_const_obj("a"), JsonSchemaObject.parse_obj({"enum": ["b"]})]
     result = JsonSchemaParser._extract_const_enum_from_combined(items, None)
     assert result is None
+
+
+def test_extract_const_enum_declared_type_forbidding_its_const_rejects_pure_const() -> None:
+    """A branch whose declared type forbids its own const admits nothing, whatever the type is."""
+    for branch in (
+        {"type": "null", "const": "a"},
+        {"type": "integer", "const": "a"},
+        {"type": "string", "const": None},
+    ):
+        items = [JsonSchemaObject.parse_obj(branch)]
+        assert JsonSchemaParser._extract_const_enum_from_combined(items, None) is None
 
 
 def test_extract_const_enum_null_type_with_value_const_rejects_pure_const() -> None:

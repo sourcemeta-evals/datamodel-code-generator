@@ -2218,6 +2218,9 @@ def test_main_jsonschema_oneof_const_metadata_branches(metadata: dict[str, Any],
         {"const": "a", "type": "null"},
         {"const": "a", "enum": [None]},
         {"const": "a", "enum": []},
+        {"const": "a", "type": "integer"},
+        {"const": None, "type": "string"},
+        {"const": True, "type": "integer"},
     ],
 )
 def test_main_jsonschema_oneof_const_negated_branch_stays_unrestricted(
@@ -2289,6 +2292,55 @@ def test_main_jsonschema_oneof_const_varnames(output_file: Path) -> None:
         assert_func=assert_file_content,
         expected_file="oneof_const_varnames.py",
     )
+
+
+@pytest.mark.parametrize("keyword", ["oneOf", "anyOf"])
+@pytest.mark.parametrize(
+    ("branches", "names", "expected"),
+    [
+        (
+            [{"const": 1}, {"const": None}, {"const": 2}],
+            ["ONE", "NIL", "TWO"],
+            {"ONE": 1, "NIL": None, "TWO": 2},
+        ),
+        ([{"const": 1}, {"const": 2}], ["ONE", "TWO"], {"ONE": 1, "TWO": 2}),
+    ],
+)
+def test_main_jsonschema_oneof_const_nullable_varnames(
+    branches: list[dict[str, Any]],
+    names: list[str],
+    expected: dict[str, Any],
+    keyword: str,
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    """Test a nullable const union keeps each supplied name on the value it named."""
+    schema = tmp_path / "schema.json"
+    schema.write_text(
+        json.dumps({"title": "Code", "type": ["integer", "null"], "x-enum-varnames": names, keyword: branches}),
+        encoding="utf-8",
+    )
+    output = tmp_path / "model.py"
+    assert (
+        main([
+            "--input",
+            str(schema),
+            "--output",
+            str(output),
+            "--input-file-type",
+            "jsonschema",
+            "--disable-timestamp",
+            "--output-model-type",
+            "pydantic_v2.BaseModel",
+        ])
+        == Exit.OK
+    )
+    root = _import_generated(output, monkeypatch).Code
+    # A null member moves the values it is not written beside, so the names a
+    # schema supplies have to keep naming the values they named. Fewer names
+    # than values leaves the rest to the generator rather than raising.
+    assert expected.items() <= {member.name: member.value for member in root}.items()
+    assert _admits(root, None)
 
 
 def test_main_jsonschema_oneof_const_all_of_ref(output_file: Path) -> None:
@@ -2521,6 +2573,7 @@ def test_main_jsonschema_oneof_const_enum_declared_imports(
         ({}, ["npm", "yarn"], "enum", None, []),
         ({}, [], "enum", None, []),
         ({}, [True, 1, False, 0], None, None, []),
+        ({}, [0, 9007199254740992, 9007199254740993], None, None, []),
         ({}, [1, "npm"], None, "first", []),
         ({"type": ["integer", "null"]}, [1, 2], None, None, ["--no-use-specialized-enum"]),
     ],
@@ -2576,11 +2629,14 @@ def test_main_jsonschema_const_union_matches_equivalent_enum(
             *extra_args,
             *literal_args,
         ])
-        # The exit code is compared rather than asserted because the generator
-        # refuses a root float enum under `--enum-field-as-literal all` however
-        # the schema spells one, and the two forms have to agree about that too.
         outputs.append((exit_code, output.read_text(encoding="utf-8") if exit_code == Exit.OK else ""))
 
+    # The generator refuses a root float enum under `--enum-field-as-literal
+    # all` however the schema spells one, so that one case asks only that both
+    # forms agree about failing. Every other case has to generate, or two
+    # failures would satisfy the comparison without producing any output.
+    if not (literal_args and any(isinstance(value, float) for value in values)):
+        assert outputs[0][0] == Exit.OK
     assert outputs[0] == outputs[1]
 
 
