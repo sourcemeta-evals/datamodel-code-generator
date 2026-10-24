@@ -481,6 +481,7 @@ JSON_TYPES_BY_VALUE: tuple[tuple[type, tuple[str, ...]], ...] = (
 
 CONST_BRANCH_ANNOTATION_KEYS: set[str] = {
     "$comment",
+    "x_enum_varnames",
     "const",
     "deprecated",
     "default",
@@ -779,7 +780,9 @@ class JsonSchemaParser(Parser):
             return False
         if "enum" in item.__fields_set__ and item.enum != [None]:
             return False
-        return not set(item.extras) - CONST_BRANCH_ANNOTATION_KEYS
+        # A vendor extension cannot restrict what a branch admits, so an `x-`
+        # key is metadata whatever it is called.
+        return not {key for key in item.extras if not key.startswith("x-")} - CONST_BRANCH_ANNOTATION_KEYS
 
     @classmethod
     def _extract_const_enum_from_combined(
@@ -2365,10 +2368,16 @@ class JsonSchemaParser(Parser):
             )
         enum_fields: list[DataModelFieldBase] = []
 
+        varnames = obj.x_enum_varnames
         if None in obj.enum and obj.type == "string":
             # Nullable is valid in only OpenAPI
             nullable: bool = True
-            enum_times = [e for e in obj.enum if e is not None]
+            # `x-enum-varnames` names the values by position, so dropping one
+            # has to drop its name with it or every later name shifts onto the
+            # wrong value.
+            kept = [index for index, value in enumerate(obj.enum) if value is not None]
+            enum_times = [obj.enum[index] for index in kept]
+            varnames = [varnames[index] for index in kept if index < len(varnames)]
         else:
             enum_times = obj.enum
             nullable = False
@@ -2378,11 +2387,11 @@ class JsonSchemaParser(Parser):
         for i, enum_part in enumerate(enum_times):
             if obj.type == "string" or isinstance(enum_part, str):
                 default = f"'{enum_part.translate(escape_characters)}'" if isinstance(enum_part, str) else enum_part
-                field_name = obj.x_enum_varnames[i] if i < len(obj.x_enum_varnames) else str(enum_part)
+                field_name = varnames[i] if i < len(varnames) else str(enum_part)
             else:
                 default = enum_part
-                if i < len(obj.x_enum_varnames):
-                    field_name = obj.x_enum_varnames[i]
+                if i < len(varnames):
+                    field_name = varnames[i]
                 elif isinstance(enum_part, dict):
                     field_name = self._get_field_name_from_dict_enum(enum_part, i)
                 else:

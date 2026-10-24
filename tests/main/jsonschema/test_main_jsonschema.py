@@ -6,6 +6,7 @@ import importlib.util
 import json
 import sys
 from collections import defaultdict
+from enum import Enum
 from pathlib import Path
 from typing import TYPE_CHECKING
 from unittest.mock import call
@@ -2139,6 +2140,12 @@ def test_main_jsonschema_oneof_const_sibling_combinators(output_file: Path) -> N
         ({"type": "integer"}, [{"const": 1}, {"const": 2}, {"const": None, "type": ["integer", "null"]}], [1, 2], [99]),
         ({"type": "string"}, [{"const": "a"}, {"const": "b"}, {"type": "null", "const": None}], ["a", "b"], ["zz"]),
         ({"type": "string"}, [{"const": "a"}, {"const": "b"}, {"const": None, "enum": [None]}], ["a", "b"], ["zz"]),
+        (
+            {"type": "string"},
+            [{"const": "a"}, {"const": "b"}, {"enum": [None], "type": ["string", "null"]}],
+            ["a", "b"],
+            ["zz"],
+        ),
     ],
 )
 def test_main_jsonschema_oneof_const_nullable_union_admits_null(
@@ -2181,7 +2188,16 @@ def test_main_jsonschema_oneof_const_nullable_union_admits_null(
 
 @pytest.mark.parametrize("keyword", ["oneOf", "anyOf"])
 @pytest.mark.parametrize(
-    "metadata", [{"$comment": "a note"}, {"readOnly": True}, {"writeOnly": True}, {"deprecated": True}]
+    "metadata",
+    [
+        {"$comment": "a note"},
+        {"readOnly": True},
+        {"writeOnly": True},
+        {"deprecated": True},
+        # A vendor extension is metadata whatever it is called, so the set of
+        # recognised names cannot be what decides this.
+        {"x-internal": True},
+    ],
 )
 def test_main_jsonschema_oneof_const_metadata_branches(metadata: dict[str, Any], keyword: str, tmp_path: Path) -> None:
     """Test metadata on a const branch leaves the fixed value set intact."""
@@ -2221,12 +2237,15 @@ def test_main_jsonschema_oneof_const_metadata_branches(metadata: dict[str, Any],
         {"const": "a", "type": "integer"},
         {"const": None, "type": "string"},
         {"const": True, "type": "integer"},
+        # Not a contradiction, but not a fixed value either: only `const` pins
+        # one, apart from an alternative admitting nothing but null.
+        {"enum": ["b"]},
     ],
 )
 def test_main_jsonschema_oneof_const_negated_branch_stays_unrestricted(
     branch: dict[str, Any], keyword: str, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
-    """Test a branch whose own keywords admit nothing leaves the union unrestricted."""
+    """Test a branch that pins no fixed value of its own leaves the union unrestricted."""
     schema = tmp_path / "schema.json"
     schema.write_text(
         json.dumps({"title": "NegatedBranch", keyword: [branch, {"const": "b"}]}),
@@ -2248,10 +2267,11 @@ def test_main_jsonschema_oneof_const_negated_branch_stays_unrestricted(
         == Exit.OK
     )
     root = _import_generated(output, monkeypatch).NegatedBranch
-    # The first branch admits nothing: its `not`, its null-only type, or its
-    # `enum` forbids the very value its `const` fixes. Reading that `const`
-    # alone would restrict the union to a set one branch rejects, so a value
-    # neither branch mentions shows the restriction was not applied.
+    # The first branch pins no fixed value: either its `not`, its null-only
+    # type or its `enum` forbids the very value its `const` fixes, or it carries
+    # no `const` at all. Converting around it would restrict the union to a set
+    # one branch rejects, so a value neither branch mentions shows the
+    # restriction was not applied.
     assert _admits(root, "other")
 
 
@@ -2296,17 +2316,34 @@ def test_main_jsonschema_oneof_const_varnames(output_file: Path) -> None:
 
 @pytest.mark.parametrize("keyword", ["oneOf", "anyOf"])
 @pytest.mark.parametrize(
-    ("branches", "names", "expected"),
+    ("parent", "branches", "names", "expected"),
     [
         (
+            {"type": ["integer", "null"]},
             [{"const": 1}, {"const": None}, {"const": 2}],
             ["ONE", "NIL", "TWO"],
             {"ONE": 1, "NIL": None, "TWO": 2},
         ),
-        ([{"const": 1}, {"const": 2}], ["ONE", "TWO"], {"ONE": 1, "TWO": 2}),
+        ({"type": ["integer", "null"]}, [{"const": 1}, {"const": 2}], ["ONE", "TWO"], {"ONE": 1, "TWO": 2}),
+        # A string enum drops its null member and turns nullable in its place,
+        # so the names have to follow the values that remain.
+        (
+            {"type": "string"},
+            [{"const": "a"}, {"const": None}, {"const": "b"}],
+            ["A", "NIL", "B"],
+            {"A": "a", "B": "b"},
+        ),
+        (
+            {"type": "string"},
+            [{"const": None}, {"const": "a"}, {"const": "b"}],
+            ["NIL", "A", "B"],
+            {"A": "a", "B": "b"},
+        ),
+        ({"type": ["string", "null"]}, [{"const": "a"}, {"const": "b"}], ["A", "B"], {"A": "a", "B": "b"}),
     ],
 )
 def test_main_jsonschema_oneof_const_nullable_varnames(
+    parent: dict[str, Any],
     branches: list[dict[str, Any]],
     names: list[str],
     expected: dict[str, Any],
@@ -2317,7 +2354,7 @@ def test_main_jsonschema_oneof_const_nullable_varnames(
     """Test a nullable const union keeps each supplied name on the value it named."""
     schema = tmp_path / "schema.json"
     schema.write_text(
-        json.dumps({"title": "Code", "type": ["integer", "null"], "x-enum-varnames": names, keyword: branches}),
+        json.dumps({"title": "Code", **parent, "x-enum-varnames": names, keyword: branches}),
         encoding="utf-8",
     )
     output = tmp_path / "model.py"
@@ -2335,12 +2372,18 @@ def test_main_jsonschema_oneof_const_nullable_varnames(
         ])
         == Exit.OK
     )
-    root = _import_generated(output, monkeypatch).Code
+    module = _import_generated(output, monkeypatch)
+    enums = [
+        value
+        for value in vars(module).values()
+        if isinstance(value, type) and issubclass(value, Enum) and value is not Enum
+    ]
+    assert len(enums) == 1
     # A null member moves the values it is not written beside, so the names a
     # schema supplies have to keep naming the values they named. Fewer names
     # than values leaves the rest to the generator rather than raising.
-    assert expected.items() <= {member.name: member.value for member in root}.items()
-    assert _admits(root, None)
+    assert expected.items() <= {member.name: member.value for member in enums[0]}.items()
+    assert _admits(module.Code, None)
 
 
 def test_main_jsonschema_oneof_const_all_of_ref(output_file: Path) -> None:
@@ -2574,6 +2617,9 @@ def test_main_jsonschema_oneof_const_enum_declared_imports(
         ({}, [], "enum", None, []),
         ({}, [True, 1, False, 0], None, None, []),
         ({}, [0, 9007199254740992, 9007199254740993], None, None, []),
+        ({"type": "string"}, ["a", "a", "b"], None, None, []),
+        ({"type": "string", "additionalProperties": False}, ["a", "b"], None, None, []),
+        ({"type": ["string", None]}, ["a", "b"], None, None, []),
         ({}, [1, "npm"], None, "first", []),
         ({"type": ["integer", "null"]}, [1, 2], None, None, ["--no-use-specialized-enum"]),
     ],
@@ -2593,6 +2639,9 @@ def test_main_jsonschema_const_union_matches_equivalent_enum(
     enum_values = list(values)
     declared_types = enum_parent.get("type", [])
     declared_types = [declared_types] if isinstance(declared_types, str) else list(declared_types)
+    # A `type` list written in YAML spells its null unquoted, which the schema
+    # object's own validator rewrites before anything reads it.
+    declared_types = ["null" if type_ is None else type_ for type_ in declared_types]
     if null_spelling is not None or "null" in declared_types:
         # An equivalent `enum` schema carries `None` among its values whatever
         # its type, because that member is what makes the generated class admit
