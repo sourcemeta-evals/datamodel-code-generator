@@ -72,6 +72,30 @@ UNICODE_RECURSIVE_SCHEMA: dict[str, Any] = {
     },
 }
 
+RENAMED_RECURSIVE_SCHEMA: dict[str, Any] = {
+    "$schema": "http://json-schema.org/draft-07/schema#",
+    "title": "Root",
+    "type": "object",
+    "properties": {
+        "tree": {"$ref": "#/definitions/Literal"},
+        "pet": {
+            "title": "Pet",
+            "discriminator": {"propertyName": "pet_type"},
+            "oneOf": [{"$ref": "#/definitions/Cat"}, {"$ref": "#/definitions/Dog"}],
+        },
+    },
+    "definitions": {
+        "Literal": {
+            "anyOf": [
+                {"type": "string"},
+                {"type": "array", "items": {"$ref": "#/definitions/Literal"}},
+            ]
+        },
+        "Cat": {"type": "object", "properties": {"pet_type": {"type": "string"}}, "required": ["pet_type"]},
+        "Dog": {"type": "object", "properties": {"pet_type": {"type": "string"}}, "required": ["pet_type"]},
+    },
+}
+
 MUTUAL_SCHEMA: dict[str, Any] = {
     "$schema": "http://json-schema.org/draft-07/schema#",
     "title": "Root",
@@ -411,6 +435,29 @@ def test_recursive_alias_defers_a_non_ascii_self_reference(tmp_path: Path) -> No
     assert module.Root(etage=["a", ["b"]]).etage == ["a", ["b"]]
     with pytest.raises(ValidationError):
         module.Root(etage=1)
+
+
+def test_recursive_alias_keeps_a_renamed_self_reference(tmp_path: Path) -> None:
+    """A recursive alias keeps deferring its self-reference after a collision renames it.
+
+    A discriminated union makes the parser import ``typing.Literal`` late, which
+    collides with an alias of that name and renames its declaration to ``Literal1``.
+    Deferring the self-reference before that rename leaves the old name quoted,
+    where it resolves to the imported typing construct instead of the alias, and
+    the model that uses the alias raises while the module is imported.
+    """
+    output_file = generate_module(
+        tmp_path,
+        RENAMED_RECURSIVE_SCHEMA,
+        "--output-model-type",
+        "pydantic_v2.BaseModel",
+        "--target-python-version",
+        "3.9",
+    )
+    module = import_module(output_file, "eval_alias_recursive_renamed")
+    assert module.Root(tree=["a", ["b"]], pet={"pet_type": "Cat"}).tree == ["a", ["b"]]
+    with pytest.raises(ValidationError):
+        module.Root(tree=1)
 
 
 def test_mutually_recursive_aliases_import_and_validate(tmp_path: Path) -> None:
