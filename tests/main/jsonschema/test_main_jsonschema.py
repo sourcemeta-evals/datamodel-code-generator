@@ -2121,16 +2121,112 @@ def test_main_jsonschema_oneof_const_sibling_combinators(output_file: Path) -> N
 
 
 @pytest.mark.parametrize("keyword", ["oneOf", "anyOf"])
-def test_main_jsonschema_oneof_const_negated_branch_stays_unrestricted(
-    keyword: str, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+@pytest.mark.parametrize(
+    ("parent", "branches", "listed", "unlisted"),
+    [
+        ({"type": ["integer", "null"]}, [{"const": 1}, {"const": 2}], [1, 2], [99]),
+        ({"type": ["string", "null"]}, [{"const": "a"}, {"const": "b"}], ["a", "b"], ["zz"]),
+        ({"type": ["number", "null"]}, [{"const": 0.5}, {"const": 1.5}], [0.5, 1.5], [9.5]),
+        ({"type": ["boolean", "null"]}, [{"const": True}, {"const": False}], [True, False], []),
+        ({"type": "integer"}, [{"const": 1}, {"const": 2}, {"type": "null"}], [1, 2], [99]),
+        ({"type": "string"}, [{"const": "a"}, {"const": "b"}, {"const": None}], ["a", "b"], ["zz"]),
+        ({}, [{"const": "a"}, {"const": "b"}, {"enum": [None]}], ["a", "b"], ["zz"]),
+        # The null type spelled the way YAML writes it, which the schema's own
+        # field validator rewrites before any branch is classified.
+        ({"type": "integer"}, [{"const": 1}, {"const": 2}, {"type": None}], [1, 2], [99]),
+        ({"type": "integer"}, [{"const": 1}, {"const": 2}, {"type": [None]}], [1, 2], [99]),
+        # Compatible restrictions sharing one branch, each admitting only null.
+        ({"type": "integer"}, [{"const": 1}, {"const": 2}, {"const": None, "type": ["integer", "null"]}], [1, 2], [99]),
+        ({"type": "string"}, [{"const": "a"}, {"const": "b"}, {"type": "null", "const": None}], ["a", "b"], ["zz"]),
+        ({"type": "string"}, [{"const": "a"}, {"const": "b"}, {"const": None, "enum": [None]}], ["a", "b"], ["zz"]),
+    ],
+)
+def test_main_jsonschema_oneof_const_nullable_union_admits_null(
+    parent: dict[str, Any],
+    branches: list[dict[str, Any]],
+    listed: list[Any],
+    unlisted: list[Any],
+    keyword: str,
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
 ) -> None:
-    """Test a `not` beside a `const` leaves the union unrestricted."""
+    """Test a const union admitting null generates a model that accepts null."""
+    schema = tmp_path / "schema.json"
+    schema.write_text(json.dumps({"title": "Code", **parent, keyword: branches}), encoding="utf-8")
+    output = tmp_path / "model.py"
+    assert (
+        main([
+            "--input",
+            str(schema),
+            "--output",
+            str(output),
+            "--input-file-type",
+            "jsonschema",
+            "--disable-timestamp",
+            "--output-model-type",
+            "pydantic_v2.BaseModel",
+        ])
+        == Exit.OK
+    )
+    root = _import_generated(output, monkeypatch).Code
+    # The equivalent-enum matrix compares two generated outputs, so a defect
+    # shared by both renders agreeing output and passes. These assertions hold
+    # against the schema itself rather than against a counterpart.
+    assert _admits(root, None)
+    for value in listed:
+        assert _admits(root, value)
+    for value in unlisted:
+        assert not _admits(root, value)
+
+
+@pytest.mark.parametrize("keyword", ["oneOf", "anyOf"])
+@pytest.mark.parametrize(
+    "metadata", [{"$comment": "a note"}, {"readOnly": True}, {"writeOnly": True}, {"deprecated": True}]
+)
+def test_main_jsonschema_oneof_const_metadata_branches(metadata: dict[str, Any], keyword: str, tmp_path: Path) -> None:
+    """Test metadata on a const branch leaves the fixed value set intact."""
+    outputs = []
+    for value_schema in (
+        {keyword: [{"const": "npm", **metadata}, {"const": "yarn"}]},
+        {"enum": ["npm", "yarn"]},
+    ):
+        schema = tmp_path / "schema.json"
+        schema.write_text(json.dumps({"title": "Mode", "type": "string", **value_schema}), encoding="utf-8")
+        output = tmp_path / "model.py"
+        assert (
+            main([
+                "--input",
+                str(schema),
+                "--output",
+                str(output),
+                "--input-file-type",
+                "jsonschema",
+                "--disable-timestamp",
+            ])
+            == Exit.OK
+        )
+        outputs.append(output.read_text(encoding="utf-8"))
+
+    assert outputs[0] == outputs[1]
+
+
+@pytest.mark.parametrize("keyword", ["oneOf", "anyOf"])
+@pytest.mark.parametrize(
+    "branch",
+    [
+        {"const": "a", "not": {"const": "a"}},
+        {"const": "a", "type": "null"},
+        {"const": "a", "enum": [None]},
+        {"const": "a", "enum": []},
+    ],
+)
+def test_main_jsonschema_oneof_const_negated_branch_stays_unrestricted(
+    branch: dict[str, Any], keyword: str, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """Test a branch whose own keywords admit nothing leaves the union unrestricted."""
     schema = tmp_path / "schema.json"
     schema.write_text(
-        json.dumps({
-            "title": "NegatedBranch",
-            keyword: [{"const": "a", "not": {"const": "a"}}, {"const": "b"}],
-        }),
+        json.dumps({"title": "NegatedBranch", keyword: [branch, {"const": "b"}]}),
         encoding="utf-8",
     )
     output = tmp_path / "model.py"
@@ -2149,9 +2245,10 @@ def test_main_jsonschema_oneof_const_negated_branch_stays_unrestricted(
         == Exit.OK
     )
     root = _import_generated(output, monkeypatch).NegatedBranch
-    # The first branch forbids the very value its `const` fixes, so reading
-    # that `const` alone would restrict the union to a set one branch rejects.
-    # A value neither branch mentions shows the restriction was not applied.
+    # The first branch admits nothing: its `not`, its null-only type, or its
+    # `enum` forbids the very value its `const` fixes. Reading that `const`
+    # alone would restrict the union to a set one branch rejects, so a value
+    # neither branch mentions shows the restriction was not applied.
     assert _admits(root, "other")
 
 
@@ -2455,13 +2552,16 @@ def test_main_jsonschema_const_union_matches_equivalent_enum(
     declared_types = enum_parent.get("type", [])
     declared_types = [declared_types] if isinstance(declared_types, str) else list(declared_types)
     if null_spelling is not None or "null" in declared_types:
-        # An equivalent `enum` schema spells its null the way its own type
-        # allows: a string enum, and an untyped one, carry `None` among their
-        # values, which the generator drops from a string enum while marking it
-        # nullable, and any other type keeps the null in its type list.
+        # An equivalent `enum` schema carries `None` among its values whatever
+        # its type, because that member is what makes the generated class admit
+        # null. A string enum, and an untyped one, declare the non-null type as
+        # a scalar, since the generator drops that member from a string enum and
+        # marks it nullable in its place. Any other type keeps `"null"` in its
+        # type list, which is what leaves the enum unspecialised so the member
+        # can exist at all.
         non_null_types = [type_ for type_ in declared_types if type_ != "null"]
+        enum_values.append(None)
         if non_null_types in ([], ["string"]):
-            enum_values.append(None)
             if non_null_types:
                 enum_parent["type"] = non_null_types[0]
             else:

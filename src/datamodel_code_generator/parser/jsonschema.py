@@ -469,7 +469,9 @@ EXCLUDE_FIELD_KEYS = (
 # guessing which keyword wins. Branch keys are matched against both the set
 # fields and `extras`, since annotations are kept in both.
 CONST_BRANCH_ANNOTATION_KEYS: set[str] = {
+    "$comment",
     "const",
+    "deprecated",
     "default",
     "description",
     "example",
@@ -749,10 +751,10 @@ class JsonSchemaParser(Parser):
 
     @classmethod
     def _is_plain_const_branch(cls, item: JsonSchemaObject) -> bool:
-        """Check whether a branch restricts its value by nothing beyond `const`, `type` and `enum: [null]`."""
+        """Check whether every keyword on a branch is an annotation, its `const`, its `type` or `enum: [null]`."""
         if item.__fields_set__ - CONST_BRANCH_ANNOTATION_KEYS - {"enum"}:
             return False
-        if item.enum and item.enum != [None]:
+        if "enum" in item.__fields_set__ and item.enum != [None]:
             return False
         return not set(item.extras) - CONST_BRANCH_ANNOTATION_KEYS
 
@@ -760,7 +762,7 @@ class JsonSchemaParser(Parser):
     def _extract_const_enum_from_combined(
         cls, items: list[JsonSchemaObject], parent_type: str | list[str] | None
     ) -> tuple[list[Any], str | list[str] | None, bool] | None:
-        """Extract enum values from oneOf/anyOf const pattern."""
+        """Extract the values, the type and the nullability a `oneOf`/`anyOf` const pattern implies."""
         enum_values: list[Any] = []
         nullable = False
 
@@ -805,7 +807,11 @@ class JsonSchemaParser(Parser):
         final_type: str | list[str] | None = parent_type
         if isinstance(parent_type, list):
             non_null_types = [t for t in parent_type if t != "null"]
-            if non_null_types == ["string"] and (nullable or "null" in parent_type):
+            if "null" in parent_type:
+                # The schema's own type admits null, exactly as a null branch
+                # does, so the enum has to carry it either way.
+                nullable = True
+            if non_null_types == ["string"] and nullable:
                 # A nullable string enum is spelled as a scalar type whatever
                 # the schema's own list spelling is, because parse_enum drops a
                 # null member from a string enum and marks the enum nullable in
@@ -859,13 +865,14 @@ class JsonSchemaParser(Parser):
         base_dict = original.dict(exclude_unset=True, by_alias=True)
         for combinator in ("oneOf", "anyOf"):
             base_dict.pop(combinator, None)
-        # parse_enum drops a null member from a string enum only, so a nullable
-        # enum of any other declared type spells its null in the `type`, the way
-        # an equivalent `enum` schema with a nullable type list does. Keeping the
-        # member there instead would rename the others, and a specialised enum
-        # such as IntEnum could not be created from it at all.
+        # A nullable enum carries its null among the values, because that member
+        # is what makes the generated class admit null at all. A declared
+        # non-string type also keeps `"null"` in its `type`, since that list is
+        # what leaves the enum unspecialised: a specialised class such as
+        # IntEnum cannot be created from a null member. parse_enum drops the
+        # member again for a string enum and marks the enum nullable instead.
         null_in_type = nullable and enum_type is not None and enum_type != "string"
-        base_dict["enum"] = [*enum_values, None] if nullable and not null_in_type else enum_values
+        base_dict["enum"] = [*enum_values, None] if nullable else enum_values
         if enum_type is None:
             # The key is dropped rather than set to None, because the field's
             # validator rewrites a None type to the string "null".
