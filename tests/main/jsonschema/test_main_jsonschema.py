@@ -2781,9 +2781,10 @@ def test_main_jsonschema_oneof_const_enum_large_integer_values(
     """Test a const union keeps an integer constant too large to hold as a float."""
     # JSON Schema puts no ceiling on an integer constant, and the equivalent
     # `enum` schema carries this one through to a member of its own, so a
-    # conversion that reads a const value as a float aborts here instead.
+    # conversion that reads a const value as a float aborts here instead. That
+    # equivalent is the control: both forms have to generate and keep the value,
+    # while how each one names the member belongs to the equivalence matrix.
     values = [0, 10**400]
-    outputs = []
     for value_schema in ({keyword: _const_branches(values, None, None)}, {"enum": values}):
         schema = tmp_path / "schema.json"
         schema.write_text(json.dumps({"title": "Mode", **value_schema}), encoding="utf-8")
@@ -2802,10 +2803,7 @@ def test_main_jsonschema_oneof_const_enum_large_integer_values(
             ])
             == Exit.OK
         )
-        outputs.append(output.read_text(encoding="utf-8"))
         assert [member.value for member in _import_generated(output, monkeypatch).Mode] == values
-
-    assert outputs[0] == outputs[1]
 
 
 @pytest.mark.parametrize(
