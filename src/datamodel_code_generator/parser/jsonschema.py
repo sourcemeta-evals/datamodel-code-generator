@@ -775,7 +775,7 @@ class JsonSchemaParser(Parser):
 
     @classmethod
     def _admits_only_null(cls, item: JsonSchemaObject) -> bool:
-        """Check if a branch admits null and nothing else."""
+        """Check if a branch's own `type` and `enum` admit null and nothing else."""
         if "enum" in item.__fields_set__:
             # A `type` and an `enum` on one branch both restrict it, so what the
             # branch admits is what the two of them agree on.
@@ -850,12 +850,15 @@ class JsonSchemaParser(Parser):
                 # The schema's own type admits null, exactly as a null branch
                 # does, so the enum has to carry it either way.
                 nullable = True
-            if non_null_types == ["string"] and nullable:
+            if non_null_types == ["string"] and nullable and any(value is not None for value in enum_values):
                 # A nullable string enum is spelled as a scalar type whatever
                 # the schema's own list spelling is, because parse_enum drops a
                 # null member from a string enum and marks the enum nullable in
                 # its place. Collapsing it is what renders such a schema as a
-                # nullable string enum rather than an unspecialised one.
+                # nullable string enum rather than an unspecialised one. A union
+                # carrying no non-null value has no non-null type to declare, so
+                # it keeps the list spelling instead: dropping its null member
+                # would leave an enum class with no members at all.
                 nullable = True
                 final_type = "string"
 
