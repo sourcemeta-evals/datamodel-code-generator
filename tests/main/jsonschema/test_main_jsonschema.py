@@ -2220,6 +2220,12 @@ def test_main_jsonschema_oneof_const_sibling_combinators(output_file: Path) -> N
         # and renders a class whose one member is the null one.
         ({"type": ["string", "null"]}, [{"const": None}], [], ["zz"]),
         ({"type": ["string", "null"]}, [{"type": "null"}], [], ["zz"]),
+        # The same union under a type that names the string alone. Its
+        # equivalent `enum` keeps the null member rather than dropping it, since
+        # dropping the only member would leave an empty class behind.
+        ({"type": "string"}, [{"const": None}], [], ["zz"]),
+        ({"type": "string"}, [{"type": "null"}], [], ["zz"]),
+        ({"type": ["string"]}, [{"const": None}], [], ["zz"]),
     ],
 )
 def test_main_jsonschema_oneof_const_nullable_union_admits_null(
@@ -2414,8 +2420,9 @@ def test_main_jsonschema_oneof_const_negated_branch_stays_unrestricted(
     assert _admits(root, "other")
 
 
+@pytest.mark.parametrize("keyword", ["oneOf", "anyOf"])
 def test_main_jsonschema_oneof_const_branch_id_stays_resolvable(
-    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+    keyword: str, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
     """Test an identifier declared inside a const branch stays available to other references."""
     schema = tmp_path / "schema.json"
@@ -2426,7 +2433,7 @@ def test_main_jsonschema_oneof_const_branch_id_stays_resolvable(
             "type": "object",
             "properties": {"mode": {"$ref": "#choice"}},
             "required": ["mode"],
-            "definitions": {"Mode": {"anyOf": [{"$id": "#choice", "const": "a"}, {"const": "b"}]}},
+            "definitions": {"Mode": {keyword: [{"$id": "#choice", "const": "a"}, {"const": "b"}]}},
         }),
         encoding="utf-8",
     )
@@ -2850,6 +2857,10 @@ def test_main_jsonschema_oneof_const_enum_large_integer_values(
         # value literal setting sees and sends the two schemas down different
         # rendering paths.
         ({}, [None], "const", None, []),
+        # A null-only union under a scalar `string` type, where the equivalent
+        # `enum` has to keep its null member for either side to render at all.
+        ({"type": "string"}, [], "const", None, []),
+        ({"type": "string"}, [], "branch", None, []),
     ],
 )
 def test_main_jsonschema_const_union_matches_equivalent_enum(

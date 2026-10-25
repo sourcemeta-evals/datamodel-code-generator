@@ -1280,10 +1280,11 @@ def test_main_openapi_body_and_parameters_only_paths(output_file: Path) -> None:
     )
 
 
-def test_main_openapi_oneof_const_inline_schema(tmp_path: Path) -> None:
+@pytest.mark.parametrize("keyword", ["oneOf", "anyOf"])
+def test_main_openapi_oneof_const_inline_schema(keyword: str, tmp_path: Path) -> None:
     """Test an inline const union in an operation generates the equivalent enum class."""
     outputs = []
-    for value_schema in ({"anyOf": [{"const": "npm"}, {"const": "yarn"}]}, {"enum": ["npm", "yarn"]}):
+    for value_schema in ({keyword: [{"const": "npm"}, {"const": "yarn"}]}, {"enum": ["npm", "yarn"]}):
         document = tmp_path / "openapi.json"
         document.write_text(
             json.dumps({

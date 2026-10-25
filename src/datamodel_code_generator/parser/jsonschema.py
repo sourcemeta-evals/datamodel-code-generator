@@ -2384,7 +2384,10 @@ class JsonSchemaParser(Parser):
         enum_fields: list[DataModelFieldBase] = []
 
         varnames = obj.x_enum_varnames
-        if None in obj.enum and obj.type == "string":
+        # A string enum carrying nothing but null keeps that member, because
+        # dropping it would leave a class with no members at all, and an empty
+        # class body is not something the enum template can render.
+        if None in obj.enum and obj.type == "string" and any(value is not None for value in obj.enum):
             # Nullable is valid in only OpenAPI
             nullable: bool = True
             # `x-enum-varnames` names the values by position, so dropping one
@@ -2632,6 +2635,8 @@ class JsonSchemaParser(Parser):
             for value in obj.patternProperties.values():
                 self.parse_id(value, path)
         for item in obj.anyOf:
+            self.parse_id(item, path)
+        for item in obj.oneOf:
             self.parse_id(item, path)
         for item in obj.allOf:
             self.parse_id(item, path)
