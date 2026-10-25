@@ -774,11 +774,22 @@ class JsonSchemaParser(Parser):
         return bool(names & set(admitted))
 
     @classmethod
+    def _admits_only_null(cls, item: JsonSchemaObject) -> bool:
+        """Check if a branch admits null and nothing else."""
+        if "enum" in item.__fields_set__:
+            # A `type` and an `enum` on one branch both restrict it, so what the
+            # branch admits is what the two of them agree on.
+            admitted = [value for value in item.enum if cls._type_admits(item.type, value)]
+            return bool(admitted) and all(value is None for value in admitted)
+        item_types = [item.type] if isinstance(item.type, str) else item.type
+        return item_types is not None and set(item_types) == {"null"}
+
+    @classmethod
     def _is_plain_const_branch(cls, item: JsonSchemaObject) -> bool:
         """Check if a branch carries only keys the const pattern allows."""
         if item.__fields_set__ - CONST_BRANCH_ANNOTATION_KEYS - {"enum"}:
             return False
-        if "enum" in item.__fields_set__ and item.enum != [None]:
+        if "enum" in item.__fields_set__ and not cls._admits_only_null(item):
             return False
         # A vendor extension cannot restrict what a branch admits, so an `x-`
         # key is metadata whatever it is called.
@@ -819,9 +830,7 @@ class JsonSchemaParser(Parser):
             # Every spelling of an alternative that admits nothing but null is
             # the same alternative, including `type: ["null"]`, which
             # `type_has_null` already treats like the scalar spelling.
-            item_types = [item.type] if isinstance(item.type, str) else item.type
-            only_null = item.enum == [None] or (item_types is not None and set(item_types) == {"null"})
-            if not only_null or not cls._type_admits(item.type, None):
+            if not cls._admits_only_null(item):
                 return None
             enum_values.append(None)
             nullable = True
@@ -2183,7 +2192,7 @@ class JsonSchemaParser(Parser):
         self.results.append(data_model_root)
         return self.data_type(reference=reference)
 
-    def parse_root_type(  # noqa: PLR0912, PLR0915
+    def parse_root_type(  # noqa: PLR0912
         self,
         name: str,
         obj: JsonSchemaObject,
@@ -2203,13 +2212,16 @@ class JsonSchemaParser(Parser):
             ).data_type  # pragma: no cover
         elif obj.anyOf or obj.oneOf:
             const_enum_data = self._const_enum_data(obj)
-            if const_enum_data is not None:  # pragma: no cover
+            if const_enum_data is not None:
                 enum_values, enum_type, nullable = const_enum_data
                 synthetic_obj = self._create_synthetic_enum_obj(obj, enum_values, enum_type, nullable)
                 if self.should_parse_enum_as_literal(synthetic_obj):
                     data_type = self.parse_enum_as_literal(synthetic_obj)
                 else:
-                    data_type = self.parse_enum(name, synthetic_obj, path)
+                    # The enum class is the model for this path. Falling through
+                    # would register a root model at the same path as well, and
+                    # one of the two would replace the other.
+                    return self.parse_enum(name, synthetic_obj, path)
             else:
                 reference = self.model_resolver.add(path, name, loaded=True, class_name=True)
                 if obj.anyOf:

@@ -2097,6 +2097,51 @@ def test_main_jsonschema_oneof_const_structural_null_branch_stays_unrestricted(
     assert _admits(root, "other")
 
 
+def test_main_jsonschema_oneof_const_fallback_keeps_descendant_restricted(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """Test a union that falls back still converts the const unions beneath it."""
+    schema = tmp_path / "schema.json"
+    schema.write_text(
+        json.dumps({
+            "title": "FallbackDescendant",
+            "oneOf": [
+                {"type": "null"},
+                {
+                    "allOf": [
+                        {
+                            "type": "object",
+                            "properties": {"mode": {"type": "string", "oneOf": [{"const": "a"}, {"const": "b"}]}},
+                        }
+                    ]
+                },
+            ],
+        }),
+        encoding="utf-8",
+    )
+    output = tmp_path / "model.py"
+    assert (
+        main([
+            "--input",
+            str(schema),
+            "--output",
+            str(output),
+            "--input-file-type",
+            "jsonschema",
+            "--disable-timestamp",
+            "--output-model-type",
+            "pydantic_v2.BaseModel",
+        ])
+        == Exit.OK
+    )
+    root = _import_generated(output, monkeypatch).FallbackDescendant
+    # Keeping the outer union unconverted says nothing about the property
+    # inside the alternative it keeps, so a solution that suppresses conversion
+    # for everything it builds underneath leaves that property a plain string.
+    assert _admits(root, {"mode": "a"})
+    assert not _admits(root, {"mode": "other"})
+
+
 def test_main_jsonschema_oneof_const_type_list_branch(output_file: Path) -> None:
     """Test a non-const branch declaring a list of types parses without crashing."""
     run_main_and_assert(
@@ -2154,6 +2199,21 @@ def test_main_jsonschema_oneof_const_sibling_combinators(output_file: Path) -> N
             [{"const": "a"}, {"const": "b"}, {"enum": [None], "type": ["string", "null"]}],
             ["a", "b"],
             ["zz"],
+        ),
+        # The inverse intersection: the branch's `enum` lists more than null,
+        # but its `type` forbids everything else, so null is all it admits and
+        # the value its `enum` names must not reach the union.
+        (
+            {"type": "string"},
+            [{"const": "a"}, {"const": "b"}, {"type": "null", "enum": [None, "zz"]}],
+            ["a", "b"],
+            ["zz"],
+        ),
+        (
+            {"type": "integer"},
+            [{"const": 1}, {"const": 2}, {"type": ["null"], "enum": [None, 99]}],
+            [1, 2],
+            [99],
         ),
     ],
 )
@@ -2652,7 +2712,10 @@ def test_main_jsonschema_oneof_const_enum_declared_imports(
     )
 
 
-@pytest.mark.parametrize("literal_args", [[], ["--enum-field-as-literal", "all"]])
+@pytest.mark.parametrize(
+    "literal_args",
+    [[], ["--enum-field-as-literal", "all"], ["--enum-field-as-literal", "one"]],
+)
 @pytest.mark.parametrize("keyword", ["oneOf", "anyOf"])
 @pytest.mark.parametrize(
     ("parent", "values", "null_spelling", "branch_type", "extra_args"),
@@ -2688,6 +2751,11 @@ def test_main_jsonschema_oneof_const_enum_declared_imports(
         ({"type": ["string", None]}, ["a", "b"], None, None, []),
         ({}, [1, "npm"], None, "first", []),
         ({"type": ["integer", "null"]}, [1, 2], None, None, ["--no-use-specialized-enum"]),
+        # Two alternatives pinning the same null. An equivalent `enum` keeps
+        # both members, so collapsing them changes how many values the single
+        # value literal setting sees and sends the two schemas down different
+        # rendering paths.
+        ({}, [None], "const", None, []),
     ],
 )
 def test_main_jsonschema_const_union_matches_equivalent_enum(

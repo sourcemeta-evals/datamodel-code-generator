@@ -37,6 +37,7 @@ from tests.main.conftest import (
     TIMESTAMP,
     run_main_and_assert,
     run_main_url_and_assert,
+    run_main_with_args,
 )
 from tests.main.openapi.conftest import EXPECTED_OPENAPI_PATH, assert_file_content
 
@@ -1277,6 +1278,53 @@ def test_main_openapi_body_and_parameters_only_paths(output_file: Path) -> None:
         expected_file=EXPECTED_OPENAPI_PATH / "body_and_parameters" / "only_paths.py",
         extra_args=["--openapi-scopes", "paths"],
     )
+
+
+def test_main_openapi_oneof_const_inline_schema(tmp_path: Path) -> None:
+    """Test an inline const union in an operation generates the equivalent enum class."""
+    outputs = []
+    for value_schema in ({"anyOf": [{"const": "npm"}, {"const": "yarn"}]}, {"enum": ["npm", "yarn"]}):
+        document = tmp_path / "openapi.json"
+        document.write_text(
+            json.dumps({
+                "openapi": "3.0.0",
+                "info": {"title": "Mode", "version": "1.0.0"},
+                "paths": {
+                    "/mode": {
+                        "post": {
+                            "operationId": "setMode",
+                            "requestBody": {
+                                "required": True,
+                                "content": {"application/json": {"schema": {"type": "string", **value_schema}}},
+                            },
+                            "responses": {"204": {"description": "Updated"}},
+                        }
+                    }
+                },
+            }),
+            encoding="utf-8",
+        )
+        output = tmp_path / "model.py"
+        run_main_with_args([
+            "--input",
+            str(document),
+            "--output",
+            str(output),
+            "--input-file-type",
+            "openapi",
+            "--openapi-scopes",
+            "paths",
+            "schemas",
+            "--disable-timestamp",
+        ])
+        outputs.append(output.read_text(encoding="utf-8"))
+
+    # An inline operation schema reaches the parser through its own entry point,
+    # which converts the union where it builds a root model. The membership
+    # check stands on its own, because both outputs would agree if the enum went
+    # missing from each.
+    assert "class ModePostRequest(Enum):" in outputs[0]
+    assert outputs[0] == outputs[1]
 
 
 def test_main_openapi_body_and_parameters_only_schemas(output_file: Path) -> None:

@@ -49,7 +49,7 @@ class AliasEnum(BaseModel):
 
 
 class MultipleTypeEnum(BaseModel):
-    __root__: Literal['red', 'amber', 'green', 42]
+    __root__: Optional[Literal['red', 'amber', 'green', 42]]
 
 
 class SingleEnum(BaseModel):
