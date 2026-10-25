@@ -763,7 +763,7 @@ class JsonSchemaParser(Parser):
 
     @classmethod
     def _type_admits(cls, declared: str | list[str] | None, value: Any) -> bool:
-        """Check whether a declared JSON Schema type admits a value."""
+        """Check if a declared JSON Schema type admits a value."""
         if declared is None:
             return True
         names = {declared} if isinstance(declared, str) else set(declared)
@@ -775,7 +775,7 @@ class JsonSchemaParser(Parser):
 
     @classmethod
     def _is_plain_const_branch(cls, item: JsonSchemaObject) -> bool:
-        """Check whether every keyword on a branch is an annotation, its `const`, its `type` or `enum: [null]`."""
+        """Check if a branch carries only keys the const pattern allows."""
         if item.__fields_set__ - CONST_BRANCH_ANNOTATION_KEYS - {"enum"}:
             return False
         if "enum" in item.__fields_set__ and item.enum != [None]:
@@ -788,7 +788,7 @@ class JsonSchemaParser(Parser):
     def _extract_const_enum_from_combined(
         cls, items: list[JsonSchemaObject], parent_type: str | list[str] | None
     ) -> tuple[list[Any], str | list[str] | None, bool] | None:
-        """Extract the fixed values of a `oneOf`/`anyOf` const pattern, with the type and nullability to use."""
+        """Extract the values, type and nullability of a `oneOf`/`anyOf` const pattern."""
         enum_values: list[Any] = []
         nullable = False
 
@@ -853,7 +853,7 @@ class JsonSchemaParser(Parser):
         return (enum_values, final_type, nullable)
 
     def _const_enum_data(self, obj: JsonSchemaObject) -> tuple[list[Any], str | list[str] | None, bool] | None:
-        """Extract const-union enum data, unless the parent schema forbids conversion."""
+        """Extract the values, type and nullability of a schema's const union."""
         if obj.oneOf and obj.anyOf:
             # Both combinators restrict the value, and converting either one
             # alone would silently drop the other, so leave the schema on the
@@ -876,7 +876,7 @@ class JsonSchemaParser(Parser):
         return self._extract_const_enum_from_combined(items, obj.type)
 
     def _has_fixed_value_set(self, obj: JsonSchemaObject) -> bool:
-        """Check whether a schema carries enum values of its own or a const-only union."""
+        """Check if a schema carries enum values of its own or a const-only union."""
         return bool(obj.enum) or self._const_enum_data(obj) is not None
 
     def _create_synthetic_enum_obj(
@@ -1682,7 +1682,7 @@ class JsonSchemaParser(Parser):
                     union_models.extend(d.reference for d in self.parse_one_of(name, all_of_item, path) if d.reference)
 
     def _is_enum_like_ref_target(self, ref: str) -> bool:
-        """Check whether a local reference points at a schema carrying enum values or a const-only union."""
+        """Check if a local reference points at a schema carrying enum values or a const-only union."""
         target = get_model_by_path(self.raw_obj, ref[2:].split("/"))
         if not isinstance(target, dict):  # pragma: no cover
             return False
@@ -2333,7 +2333,7 @@ class JsonSchemaParser(Parser):
         self.results.append(data_model_root_type)
 
     def parse_enum_as_literal(self, obj: JsonSchemaObject) -> DataType:
-        """Parse enum values as a Literal type, staying optional when null is a member."""
+        """Parse enum values as a Literal type."""
         return self.data_type(
             literals=[i for i in obj.enum if i is not None],
             is_optional=None in obj.enum,
