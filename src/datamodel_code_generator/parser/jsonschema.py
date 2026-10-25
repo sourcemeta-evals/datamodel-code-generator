@@ -2332,13 +2332,13 @@ class JsonSchemaParser(Parser):
         elif obj.anyOf or obj.oneOf:
             combined_items = obj.anyOf or obj.oneOf
             const_enum_data = self._extract_const_enum_from_combined(combined_items, obj.type)
-            if const_enum_data is not None:  # pragma: no cover
+            if const_enum_data is not None:
                 enum_values, varnames, enum_type, nullable = const_enum_data
                 synthetic_obj = self._create_synthetic_enum_obj(obj, enum_values, varnames, enum_type, nullable)
                 if self.should_parse_enum_as_literal(synthetic_obj):
                     data_type = self.data_type(literals=[i for i in synthetic_obj.enum if i is not None])
                 else:
-                    data_type = self._generate_const_enum_class(name, synthetic_obj, path)
+                    return self._generate_const_enum_class(name, synthetic_obj, path)
             else:
                 reference = self.model_resolver.add(path, name, loaded=True, class_name=True)
                 if obj.anyOf:
