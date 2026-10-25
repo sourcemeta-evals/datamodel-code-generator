@@ -2220,6 +2220,12 @@ def test_main_jsonschema_oneof_const_sibling_combinators(output_file: Path) -> N
         # and renders a class whose one member is the null one.
         ({"type": ["string", "null"]}, [{"const": None}], [], ["zz"]),
         ({"type": ["string", "null"]}, [{"type": "null"}], [], ["zz"]),
+        # The same union under a type that names the string alone. Its
+        # equivalent `enum` keeps the null member rather than dropping it, since
+        # dropping the only member would leave an empty class behind.
+        ({"type": "string"}, [{"const": None}], [], ["zz"]),
+        ({"type": "string"}, [{"type": "null"}], [], ["zz"]),
+        ({"type": ["string"]}, [{"const": None}], [], ["zz"]),
     ],
 )
 def test_main_jsonschema_oneof_const_nullable_union_admits_null(
@@ -2414,8 +2420,9 @@ def test_main_jsonschema_oneof_const_negated_branch_stays_unrestricted(
     assert _admits(root, "other")
 
 
+@pytest.mark.parametrize("keyword", ["oneOf", "anyOf"])
 def test_main_jsonschema_oneof_const_branch_id_stays_resolvable(
-    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+    keyword: str, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
     """Test an identifier declared inside a const branch stays available to other references."""
     schema = tmp_path / "schema.json"
@@ -2426,7 +2433,7 @@ def test_main_jsonschema_oneof_const_branch_id_stays_resolvable(
             "type": "object",
             "properties": {"mode": {"$ref": "#choice"}},
             "required": ["mode"],
-            "definitions": {"Mode": {"anyOf": [{"$id": "#choice", "const": "a"}, {"const": "b"}]}},
+            "definitions": {"Mode": {keyword: [{"$id": "#choice", "const": "a"}, {"const": "b"}]}},
         }),
         encoding="utf-8",
     )
@@ -2770,9 +2777,10 @@ def test_main_jsonschema_oneof_const_enum_large_integer_values(
     """Test a const union keeps an integer constant too large to hold as a float."""
     # JSON Schema puts no ceiling on an integer constant, and the equivalent
     # `enum` schema carries this one through to a member of its own, so a
-    # conversion that reads a const value as a float aborts here instead.
+    # conversion that reads a const value as a float aborts here instead. That
+    # equivalent is the control: both forms have to generate and keep the value,
+    # while how each one names the member belongs to the equivalence matrix.
     values = [0, 10**400]
-    outputs = []
     for value_schema in ({keyword: _const_branches(values, None, None)}, {"enum": values}):
         schema = tmp_path / "schema.json"
         schema.write_text(json.dumps({"title": "Mode", **value_schema}), encoding="utf-8")
@@ -2791,10 +2799,7 @@ def test_main_jsonschema_oneof_const_enum_large_integer_values(
             ])
             == Exit.OK
         )
-        outputs.append(output.read_text(encoding="utf-8"))
         assert [member.value for member in _import_generated(output, monkeypatch).Mode] == values
-
-    assert outputs[0] == outputs[1]
 
 
 @pytest.mark.parametrize(
@@ -2841,6 +2846,10 @@ def test_main_jsonschema_oneof_const_enum_large_integer_values(
         # value literal setting sees and sends the two schemas down different
         # rendering paths.
         ({}, [None], "const", None, []),
+        # A null-only union under a scalar `string` type, where the equivalent
+        # `enum` has to keep its null member for either side to render at all.
+        ({"type": "string"}, [], "const", None, []),
+        ({"type": "string"}, [], "branch", None, []),
     ],
 )
 def test_main_jsonschema_const_union_matches_equivalent_enum(
