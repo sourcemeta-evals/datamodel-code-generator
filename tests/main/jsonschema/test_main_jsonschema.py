@@ -2215,6 +2215,11 @@ def test_main_jsonschema_oneof_const_sibling_combinators(output_file: Path) -> N
             [1, 2],
             [99],
         ),
+        # A union carrying no non-null value. Its equivalent `enum` has no
+        # non-null type to declare, so it keeps `"null"` in its own type list
+        # and renders a class whose one member is the null one.
+        ({"type": ["string", "null"]}, [{"const": None}], [], ["zz"]),
+        ({"type": ["string", "null"]}, [{"type": "null"}], [], ["zz"]),
     ],
 )
 def test_main_jsonschema_oneof_const_nullable_union_admits_null(
@@ -2253,6 +2258,63 @@ def test_main_jsonschema_oneof_const_nullable_union_admits_null(
         assert _admits(root, value)
     for value in unlisted:
         assert not _admits(root, value)
+
+
+@pytest.mark.parametrize("literal_args", [[], ["--enum-field-as-literal", "all"]])
+@pytest.mark.parametrize("keyword", ["oneOf", "anyOf"])
+def test_main_jsonschema_oneof_const_referenced_nullable_union(
+    keyword: str, literal_args: list[str], monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """Test a referenced nullable const union renders and validates as the equivalent enum does."""
+    sources = []
+    for definition in (
+        {"type": ["string", "null"], keyword: [{"const": "npm"}, {"const": "yarn"}]},
+        {"type": "string", "enum": ["npm", "yarn", None]},
+    ):
+        schema = tmp_path / "schema.json"
+        schema.write_text(
+            json.dumps({
+                "title": "Config",
+                "type": "object",
+                "properties": {"mode": {"$ref": "#/definitions/Mode"}, "fallback": {"$ref": "#/definitions/Mode"}},
+                "required": ["mode"],
+                "definitions": {"Mode": definition},
+            }),
+            encoding="utf-8",
+        )
+        output = tmp_path / "model.py"
+        assert (
+            main([
+                "--input",
+                str(schema),
+                "--output",
+                str(output),
+                "--input-file-type",
+                "jsonschema",
+                "--disable-timestamp",
+                # Written for the Pydantic that is installed, so the module can
+                # be executed and its validation observed on either backend
+                # rather than only on the one the other import tests ask for.
+                "--output-model-type",
+                "pydantic_v2.BaseModel" if PYDANTIC_V2 else "pydantic.BaseModel",
+                *literal_args,
+            ])
+            == Exit.OK
+        )
+        sources.append(output.read_text(encoding="utf-8"))
+        config = _import_generated(output, monkeypatch).Config
+        for value in ("npm", "yarn"):
+            config(mode=value)
+        # A required reference carries the nullability of the definition it
+        # points at, so null reaches it through the optional property instead.
+        config(mode="npm", fallback=None)
+        for value in ("zz", 1):
+            with pytest.raises(ValueError):  # noqa: PT011
+                config(mode=value)
+        with pytest.raises(ValueError):  # noqa: PT011
+            config()
+
+    assert sources[0] == sources[1]
 
 
 @pytest.mark.parametrize("keyword", ["oneOf", "anyOf"])
@@ -2654,7 +2716,7 @@ def _assert_const_union_imports(
 @pytest.mark.parametrize("extra_args", [[], ["--use-subclass-enum"]])
 @pytest.mark.parametrize("branch_type", [None, "declared"])
 @pytest.mark.parametrize("null_spelling", [None, "branch", "const"])
-@pytest.mark.parametrize("values", [[1, 2], [1.5, 2.5], [True, False], ["npm", "yarn"], [1, "npm"]])
+@pytest.mark.parametrize("values", [[1, 2], [1.5, 2.5], [True, False], ["npm", "yarn"], [1, "npm"], [0, 10**400]])
 @pytest.mark.parametrize("keyword", ["oneOf", "anyOf"])
 def test_main_jsonschema_oneof_const_enum_untyped_imports(
     keyword: str,
@@ -2699,6 +2761,40 @@ def test_main_jsonschema_oneof_const_enum_declared_imports(
         monkeypatch,
         tmp_path,
     )
+
+
+@pytest.mark.parametrize("keyword", ["oneOf", "anyOf"])
+def test_main_jsonschema_oneof_const_enum_large_integer_values(
+    keyword: str, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """Test a const union keeps an integer constant too large to hold as a float."""
+    # JSON Schema puts no ceiling on an integer constant, and the equivalent
+    # `enum` schema carries this one through to a member of its own, so a
+    # conversion that reads a const value as a float aborts here instead.
+    values = [0, 10**400]
+    outputs = []
+    for value_schema in ({keyword: _const_branches(values, None, None)}, {"enum": values}):
+        schema = tmp_path / "schema.json"
+        schema.write_text(json.dumps({"title": "Mode", **value_schema}), encoding="utf-8")
+        output = tmp_path / "model.py"
+        assert (
+            main([
+                "--input",
+                str(schema),
+                "--output",
+                str(output),
+                "--input-file-type",
+                "jsonschema",
+                "--disable-timestamp",
+                "--output-model-type",
+                "pydantic_v2.BaseModel",
+            ])
+            == Exit.OK
+        )
+        outputs.append(output.read_text(encoding="utf-8"))
+        assert [member.value for member in _import_generated(output, monkeypatch).Mode] == values
+
+    assert outputs[0] == outputs[1]
 
 
 @pytest.mark.parametrize(
@@ -2804,11 +2900,15 @@ def test_main_jsonschema_const_union_matches_equivalent_enum(
         outputs.append((exit_code, output.read_text(encoding="utf-8") if exit_code == Exit.OK else ""))
 
     # The generator refuses a root float enum under `--enum-field-as-literal
-    # all` however the schema spells one, so that one case asks only that both
-    # forms agree about failing. Every other case has to generate, or two
-    # failures would satisfy the comparison without producing any output.
-    if not (literal_args and any(isinstance(value, float) for value in values)):
-        assert outputs[0][0] == Exit.OK
+    # all` however the schema spells one, so that one case asks instead that
+    # both forms agree about failing. The setting matters: under `one` a
+    # multi-valued float enum stays on the enum path and still has to generate.
+    # Every other case has to generate too, or two failures would satisfy the
+    # comparison without producing any output.
+    float_literal_all = literal_args == ["--enum-field-as-literal", "all"] and any(
+        isinstance(value, float) for value in values
+    )
+    assert outputs[0][0] == (Exit.ERROR if float_literal_all else Exit.OK)
     assert outputs[0] == outputs[1]
 
 
