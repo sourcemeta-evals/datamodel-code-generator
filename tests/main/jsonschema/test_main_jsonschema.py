@@ -27,6 +27,7 @@ from datamodel_code_generator import (
 )
 from datamodel_code_generator.__main__ import Exit, main
 from datamodel_code_generator.format import is_supported_in_black
+from datamodel_code_generator.util import PYDANTIC_V2
 from tests.conftest import assert_directory_content, freeze_time
 from tests.main.conftest import (
     ALIASES_DATA_PATH,
@@ -80,7 +81,15 @@ def _import_generated(output: Path, monkeypatch: pytest.MonkeyPatch) -> ModuleTy
     # annotations, so Pydantic resolves them through sys.modules. The fixture
     # restores the previous registration once the test ends.
     monkeypatch.setitem(sys.modules, module_spec.name, module)
-    module_spec.loader.exec_module(module)
+    try:
+        module_spec.loader.exec_module(module)
+    except ImportError:
+        if PYDANTIC_V2:
+            raise
+        # These outputs name the Pydantic v2 backend, so one that reaches for a
+        # class the installed version does not have cannot be executed here.
+        # Everything asserted about the generated source still runs under v1.
+        pytest.skip("Executing this output requires Pydantic v2")
     return module
 
 
@@ -2088,6 +2097,51 @@ def test_main_jsonschema_oneof_const_structural_null_branch_stays_unrestricted(
     assert _admits(root, "other")
 
 
+def test_main_jsonschema_oneof_const_fallback_keeps_descendant_restricted(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """Test a union that falls back still converts the const unions beneath it."""
+    schema = tmp_path / "schema.json"
+    schema.write_text(
+        json.dumps({
+            "title": "FallbackDescendant",
+            "oneOf": [
+                {"type": "null"},
+                {
+                    "allOf": [
+                        {
+                            "type": "object",
+                            "properties": {"mode": {"type": "string", "oneOf": [{"const": "a"}, {"const": "b"}]}},
+                        }
+                    ]
+                },
+            ],
+        }),
+        encoding="utf-8",
+    )
+    output = tmp_path / "model.py"
+    assert (
+        main([
+            "--input",
+            str(schema),
+            "--output",
+            str(output),
+            "--input-file-type",
+            "jsonschema",
+            "--disable-timestamp",
+            "--output-model-type",
+            "pydantic_v2.BaseModel",
+        ])
+        == Exit.OK
+    )
+    root = _import_generated(output, monkeypatch).FallbackDescendant
+    # Keeping the outer union unconverted says nothing about the property
+    # inside the alternative it keeps, so a solution that suppresses conversion
+    # for everything it builds underneath leaves that property a plain string.
+    assert _admits(root, {"mode": "a"})
+    assert not _admits(root, {"mode": "other"})
+
+
 def test_main_jsonschema_oneof_const_type_list_branch(output_file: Path) -> None:
     """Test a non-const branch declaring a list of types parses without crashing."""
     run_main_and_assert(
@@ -2146,6 +2200,21 @@ def test_main_jsonschema_oneof_const_sibling_combinators(output_file: Path) -> N
             ["a", "b"],
             ["zz"],
         ),
+        # The inverse intersection: the branch's `enum` lists more than null,
+        # but its `type` forbids everything else, so null is all it admits and
+        # the value its `enum` names must not reach the union.
+        (
+            {"type": "string"},
+            [{"const": "a"}, {"const": "b"}, {"type": "null", "enum": [None, "zz"]}],
+            ["a", "b"],
+            ["zz"],
+        ),
+        (
+            {"type": "integer"},
+            [{"const": 1}, {"const": 2}, {"type": ["null"], "enum": [None, 99]}],
+            [1, 2],
+            [99],
+        ),
     ],
 )
 def test_main_jsonschema_oneof_const_nullable_union_admits_null(
@@ -2195,8 +2264,11 @@ def test_main_jsonschema_oneof_const_nullable_union_admits_null(
         {"writeOnly": True},
         {"deprecated": True},
         # A vendor extension is metadata whatever it is called, so the set of
-        # recognised names cannot be what decides this.
+        # recognised names cannot be what decides this. `x-enum-varnames` is
+        # the case a recognised-name test gets wrong, because the schema model
+        # holds it in a field of its own rather than among the extras.
         {"x-internal": True},
+        {"x-enum-varnames": ["IGNORED"]},
     ],
 )
 def test_main_jsonschema_oneof_const_metadata_branches(metadata: dict[str, Any], keyword: str, tmp_path: Path) -> None:
@@ -2240,6 +2312,11 @@ def test_main_jsonschema_oneof_const_metadata_branches(metadata: dict[str, Any],
         # Not a contradiction, but not a fixed value either: only `const` pins
         # one, apart from an alternative admitting nothing but null.
         {"enum": ["b"]},
+        # A nested combinator restricts the branch further, so whichever value
+        # its `const` pins is not the whole of what the branch admits.
+        {"const": "a", "oneOf": [{"minLength": 1}]},
+        {"const": "a", "anyOf": [{"minLength": 1}]},
+        {"const": "a", "allOf": [{"minLength": 1}]},
     ],
 )
 def test_main_jsonschema_oneof_const_negated_branch_stays_unrestricted(
@@ -2273,6 +2350,44 @@ def test_main_jsonschema_oneof_const_negated_branch_stays_unrestricted(
     # one branch rejects, so a value neither branch mentions shows the
     # restriction was not applied.
     assert _admits(root, "other")
+
+
+def test_main_jsonschema_oneof_const_branch_id_stays_resolvable(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """Test an identifier declared inside a const branch stays available to other references."""
+    schema = tmp_path / "schema.json"
+    schema.write_text(
+        json.dumps({
+            "$schema": "http://json-schema.org/draft-07/schema#",
+            "title": "BranchId",
+            "type": "object",
+            "properties": {"mode": {"$ref": "#choice"}},
+            "required": ["mode"],
+            "definitions": {"Mode": {"anyOf": [{"$id": "#choice", "const": "a"}, {"const": "b"}]}},
+        }),
+        encoding="utf-8",
+    )
+    output = tmp_path / "model.py"
+    assert (
+        main([
+            "--input",
+            str(schema),
+            "--output",
+            str(output),
+            "--input-file-type",
+            "jsonschema",
+            "--disable-timestamp",
+            "--output-model-type",
+            "pydantic_v2.BaseModel",
+        ])
+        == Exit.OK
+    )
+    # An `$id` names the schema that carries it, so a branch declaring one is
+    # not a plain constant: removing the branch before the identifiers are
+    # registered leaves the reference from `mode` resolving to nothing.
+    model = _import_generated(output, monkeypatch).BranchId
+    assert model(mode="a").model_dump(mode="json") == {"mode": "a"}
 
 
 def test_main_jsonschema_oneof_const_sibling_combinators_keep_both_restrictions(
@@ -2586,7 +2701,10 @@ def test_main_jsonschema_oneof_const_enum_declared_imports(
     )
 
 
-@pytest.mark.parametrize("literal_args", [[], ["--enum-field-as-literal", "all"]])
+@pytest.mark.parametrize(
+    "literal_args",
+    [[], ["--enum-field-as-literal", "all"], ["--enum-field-as-literal", "one"]],
+)
 @pytest.mark.parametrize("keyword", ["oneOf", "anyOf"])
 @pytest.mark.parametrize(
     ("parent", "values", "null_spelling", "branch_type", "extra_args"),
@@ -2622,6 +2740,11 @@ def test_main_jsonschema_oneof_const_enum_declared_imports(
         ({"type": ["string", None]}, ["a", "b"], None, None, []),
         ({}, [1, "npm"], None, "first", []),
         ({"type": ["integer", "null"]}, [1, 2], None, None, ["--no-use-specialized-enum"]),
+        # Two alternatives pinning the same null. An equivalent `enum` keeps
+        # both members, so collapsing them changes how many values the single
+        # value literal setting sees and sends the two schemas down different
+        # rendering paths.
+        ({}, [None], "const", None, []),
     ],
 )
 def test_main_jsonschema_const_union_matches_equivalent_enum(
@@ -2790,6 +2913,10 @@ def test_main_jsonschema_oneof_const_empty_properties(output_file: Path) -> None
     )
 
 
+@pytest.mark.skipif(
+    not PYDANTIC_V2,
+    reason="The split models are inspected through the Pydantic v2 field API",
+)
 def test_main_jsonschema_oneof_const_read_only_write_only(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
     """Test const branches carrying readOnly or writeOnly still split request and response models."""
     schema = tmp_path / "schema.json"
