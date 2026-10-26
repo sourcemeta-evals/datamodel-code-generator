@@ -1203,9 +1203,16 @@ class Parser(ABC):
         to an alias defined further down the module raises `NameError`. Python
         3.12 `type` statements defer evaluation and are left alone. An alias in
         another module keeps the qualified name its import gave it, as its
-        short name is not bound here.
+        short name is not bound here. `--reuse-model` replaces a duplicate
+        alias with one whose path gains a `/reuse` suffix, while the references
+        to it keep the original path, so both forms are collected.
         """
-        module_aliases = {model.path for model in models if isinstance(model, TypeAliasBase)}
+        module_aliases = {
+            path
+            for model in models
+            if isinstance(model, TypeAliasBase)
+            for path in (model.path, model.path.removesuffix("/reuse"))
+        }
         rendered_aliases: set[str] = set()
 
         for model in models:

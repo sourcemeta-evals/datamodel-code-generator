@@ -126,6 +126,37 @@ DUPLICATE_SCHEMA: dict[str, Any] = {
     },
 }
 
+REUSED_RECURSIVE_SCHEMA: dict[str, Any] = {
+    "$schema": "http://json-schema.org/draft-07/schema#",
+    "title": "Root",
+    "type": "object",
+    "properties": {
+        "original": {"$ref": "#/definitions/Original"},
+        "middle": {"$ref": "#/definitions/Middle"},
+        "duplicate": {"$ref": "#/definitions/Duplicate"},
+    },
+    "definitions": {
+        "Original": {
+            "anyOf": [
+                {"type": "string"},
+                {"type": "array", "items": {"$ref": "#/definitions/Middle"}},
+            ]
+        },
+        "Middle": {
+            "anyOf": [
+                {"type": "integer"},
+                {"type": "array", "items": {"$ref": "#/definitions/Duplicate"}},
+            ]
+        },
+        "Duplicate": {
+            "anyOf": [
+                {"type": "string"},
+                {"type": "array", "items": {"$ref": "#/definitions/Middle"}},
+            ]
+        },
+    },
+}
+
 CONSTRAINED_SCHEMA: dict[str, Any] = {
     "$schema": "http://json-schema.org/draft-07/schema#",
     "title": "Root",
@@ -534,6 +565,31 @@ def test_reuse_model_renders_duplicate_aliases(tmp_path: Path) -> None:
     assert module.Root(a="abc", b="abc").a == "abc"
     with pytest.raises(ValidationError):
         module.Root(a="AB", b="abc")
+
+
+def test_reuse_model_defers_a_reference_to_a_reused_alias(tmp_path: Path) -> None:
+    """A reference to an alias that `--reuse-model` replaced is still deferred.
+
+    Reuse rewrites the duplicate of an earlier alias into one that points at it,
+    under a path of its own. An alias declared before that replacement keeps the
+    path the duplicate had, so deferring a reference by the path it names leaves
+    this one evaluated while the module is imported, where it raises.
+    """
+    output_file = generate_module(
+        tmp_path,
+        REUSED_RECURSIVE_SCHEMA,
+        "--reuse-model",
+        "--output-model-type",
+        "pydantic_v2.BaseModel",
+        "--target-python-version",
+        "3.9",
+    )
+    module = import_module(output_file, "eval_alias_reused_recursive")
+    assert module.Root(original=[1, ["a"]]).original == [1, ["a"]]
+    assert module.Root(middle=["a"]).middle == ["a"]
+    assert module.Root(duplicate=[1, ["a"]]).duplicate == [1, ["a"]]
+    with pytest.raises(ValidationError):
+        module.Root(middle=[1])
 
 
 def test_reuse_model_imports_duplicate_graphql_unions(tmp_path: Path) -> None:
