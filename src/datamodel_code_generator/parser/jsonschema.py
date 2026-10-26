@@ -477,6 +477,7 @@ JSON_TYPES_BY_VALUE: tuple[tuple[type, tuple[str, ...]], ...] = (
     (float, ("number",)),
     (str, ("string",)),
     (list, ("array",)),
+    (dict, ("object",)),
 )
 
 CONST_BRANCH_ANNOTATION_KEYS: set[str] = {
@@ -770,7 +771,9 @@ class JsonSchemaParser(Parser):
         if isinstance(value, float) and value.is_integer():
             # An integer type admits a number whose fractional part is zero.
             return bool(names & {"integer", "number"})
-        admitted = next((a for t, a in JSON_TYPES_BY_VALUE if isinstance(value, t)), ("object",))
+        # A value of no JSON type at all, which a YAML document can carry, is
+        # admitted by no declared type rather than by `object`
+        admitted = next((a for t, a in JSON_TYPES_BY_VALUE if isinstance(value, t)), ())
         return bool(names & set(admitted))
 
     @classmethod
