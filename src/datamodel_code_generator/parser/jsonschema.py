@@ -880,10 +880,11 @@ class JsonSchemaParser(Parser):
             # the sibling combinator. Converting here would reintroduce the
             # restriction loss the check above exists to prevent.
             return None
-        if obj.enum:
+        if "enum" in obj.__fields_set__:
             # The schema already restricts its value, and replacing that
             # restriction with every branch value would widen it, so leave the
-            # existing enum handling in charge.
+            # existing enum handling in charge. An empty list is that
+            # restriction too, naming nothing the schema admits.
             return None
         items = obj.oneOf or obj.anyOf
         if not items:  # pragma: no cover

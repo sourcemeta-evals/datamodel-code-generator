@@ -1280,8 +1280,12 @@ def test_main_openapi_body_and_parameters_only_paths(output_file: Path) -> None:
     )
 
 
+# An inline schema in this position takes an `enum` straight to `parse_enum`,
+# which the literal setting never reaches, so the converted union has to render
+# the same class rather than a `Literal` the equivalent schema would not.
+@pytest.mark.parametrize("literal_args", [[], ["--enum-field-as-literal", "all"]])
 @pytest.mark.parametrize("keyword", ["oneOf", "anyOf"])
-def test_main_openapi_oneof_const_inline_schema(keyword: str, tmp_path: Path) -> None:
+def test_main_openapi_oneof_const_inline_schema(keyword: str, literal_args: list[str], tmp_path: Path) -> None:
     """Test an inline const union in an operation generates the equivalent enum class."""
     outputs = []
     for value_schema in ({keyword: [{"const": "npm"}, {"const": "yarn"}]}, {"enum": ["npm", "yarn"]}):
@@ -1317,6 +1321,7 @@ def test_main_openapi_oneof_const_inline_schema(keyword: str, tmp_path: Path) ->
             "paths",
             "schemas",
             "--disable-timestamp",
+            *literal_args,
         ])
         outputs.append(output.read_text(encoding="utf-8"))
 

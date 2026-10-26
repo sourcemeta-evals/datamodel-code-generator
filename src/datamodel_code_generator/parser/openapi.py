@@ -445,9 +445,19 @@ class OpenAPIParser(JsonSchemaParser):
         elif obj.allOf:  # pragma: no cover
             data_type = self.parse_all_of(name, obj, path)
         elif obj.oneOf or obj.anyOf:  # pragma: no cover
-            data_type = self.parse_root_type(name, obj, path)
-            if isinstance(data_type, EmptyDataType) and obj.properties:
-                self.parse_object(name, obj, path)
+            const_enum_data = self._const_enum_data(obj)
+            if const_enum_data is not None:
+                enum_values, enum_type, nullable = const_enum_data
+                synthetic_obj = self._create_synthetic_enum_obj(obj, enum_values, enum_type, nullable)
+                # An inline schema in this position takes an `enum` straight to
+                # `parse_enum` whatever the literal setting says, so a converted
+                # union has to follow it rather than render a `Literal` the
+                # equivalent schema would not
+                data_type = self.parse_enum(name, synthetic_obj, path)
+            else:
+                data_type = self.parse_root_type(name, obj, path)
+                if isinstance(data_type, EmptyDataType) and obj.properties:
+                    self.parse_object(name, obj, path)
         elif obj.is_object:
             data_type = self.parse_object(name, obj, path)
         elif obj.enum:  # pragma: no cover
