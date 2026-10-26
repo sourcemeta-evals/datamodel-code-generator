@@ -2662,6 +2662,43 @@ def test_main_jsonschema_oneof_const_existing_enum(monkeypatch: pytest.MonkeyPat
     assert not _admits(root, "yarn")
 
 
+@pytest.mark.parametrize("nested", [False, True])
+@pytest.mark.parametrize("keyword", ["oneOf", "anyOf"])
+def test_main_jsonschema_oneof_const_existing_enum_empty(keyword: str, nested: bool, tmp_path: Path) -> None:
+    """Test a schema whose own `enum` is empty keeps that restriction over the union's values."""
+    outputs = []
+    # An `enum` the schema declares empty restricts it to nothing at all, which
+    # is still a restriction of its own, so the branch values must not take its
+    # place. The same schema without the combinator is the control.
+    for value_schema in ({"enum": [], keyword: [{"const": "a"}, {"const": "b"}]}, {"enum": []}):
+        restricted = {"type": "string", **value_schema}
+        if nested:
+            document = {"title": "Empty", "type": "object", "properties": {"mode": restricted}}
+        else:
+            document = {"title": "Empty", **restricted}
+        schema = tmp_path / "schema.json"
+        schema.write_text(json.dumps(document), encoding="utf-8")
+        output = tmp_path / "model.py"
+        assert (
+            main([
+                "--input",
+                str(schema),
+                "--output",
+                str(output),
+                "--input-file-type",
+                "jsonschema",
+                "--disable-timestamp",
+                "--output-model-type",
+                "pydantic_v2.BaseModel",
+            ])
+            == Exit.OK
+        )
+        outputs.append(output.read_text(encoding="utf-8"))
+
+    assert "'a'" not in outputs[0]
+    assert outputs[0] == outputs[1]
+
+
 def test_main_jsonschema_oneof_const_array_combinator_items(output_file: Path) -> None:
     """Test const-union items convert even when the enclosing array carries its own combinator."""
     run_main_and_assert(
