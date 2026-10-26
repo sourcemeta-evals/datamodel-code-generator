@@ -2439,6 +2439,11 @@ class JsonSchemaParser(Parser):
             type_: Types | None = (
                 self._get_type_with_mappings(obj.type, obj.format) if isinstance(obj.type, str) else None
             )
+            # A kept null member rules out a specialized base class and a scalar
+            # mixin alike, because each one coerces every member to its own
+            # type, which either rejects null or turns it into a string
+            if None in enum_times:
+                type_ = None
 
             enum_cls: type[Enum] = Enum
             if (

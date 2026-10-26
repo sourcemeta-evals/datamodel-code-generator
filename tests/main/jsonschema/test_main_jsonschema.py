@@ -2175,6 +2175,27 @@ def test_main_jsonschema_oneof_const_sibling_combinators(output_file: Path) -> N
     )
 
 
+_PYTHON_311_TARGET_SKIP = pytest.mark.skipif(
+    sys.version_info < (3, 11) or not is_supported_in_black(PythonVersion.PY_311),
+    reason="A Python 3.11 target needs an interpreter holding StrEnum and a black that supports the version",
+)
+
+
+@pytest.mark.parametrize(
+    "extra_args",
+    [
+        [],
+        # A specialized base class and a scalar mixin each coerce every member
+        # to their own type, so a class that admits null has to render without
+        # either one
+        pytest.param(["--target-python-version", "3.11"], marks=_PYTHON_311_TARGET_SKIP),
+        pytest.param(
+            ["--target-python-version", "3.11", "--no-use-specialized-enum", "--use-subclass-enum"],
+            marks=_PYTHON_311_TARGET_SKIP,
+        ),
+        ["--target-python-version", "3.9", "--use-subclass-enum"],
+    ],
+)
 @pytest.mark.parametrize("keyword", ["oneOf", "anyOf"])
 @pytest.mark.parametrize(
     ("parent", "branches", "listed", "unlisted"),
@@ -2234,6 +2255,7 @@ def test_main_jsonschema_oneof_const_nullable_union_admits_null(
     listed: list[Any],
     unlisted: list[Any],
     keyword: str,
+    extra_args: list[str],
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
@@ -2252,6 +2274,7 @@ def test_main_jsonschema_oneof_const_nullable_union_admits_null(
             "--disable-timestamp",
             "--output-model-type",
             "pydantic_v2.BaseModel",
+            *extra_args,
         ])
         == Exit.OK
     )
