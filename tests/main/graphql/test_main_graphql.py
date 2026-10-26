@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import ast
 import re
 from argparse import Namespace
 from typing import TYPE_CHECKING
@@ -333,6 +334,26 @@ def without_class_forward_ref_calls(generated: str) -> str:
     return "\n".join(lines).rstrip() + "\n"
 
 
+def module_declarations(generated: str) -> tuple[str, tuple[str, ...]]:
+    """Return a module's header and its top-level declarations, dropping their order.
+
+    Each declaration is still compared on its own text, so alias syntax,
+    metadata and formatting all stay in the comparison, as does the header with
+    its imports. Only the order the declarations are emitted in is dropped: a
+    reference from one of them to another is either quoted or deferred by
+    ``from __future__ import annotations``, so emitting a declaration ahead of
+    the one that uses it is a valid choice this snapshot does not adjudicate.
+    """
+    without_calls = without_class_forward_ref_calls(generated)
+    lines = without_calls.splitlines()
+    first_declaration = next(
+        node.lineno for node in ast.parse(without_calls).body if not isinstance(node, (ast.Import, ast.ImportFrom))
+    )
+    header = "\n".join(lines[: first_declaration - 1]).strip("\n")
+    declarations = "\n".join(lines[first_declaration - 1 :]).strip("\n")
+    return header, tuple(sorted(re.split(r"\n{3,}", declarations)))
+
+
 @freeze_time("2019-07-26")
 def test_main_graphql_type_alias(tmp_path: Path) -> None:
     """Test that TypeAlias annotations are generated for GraphQL schemas for Python 3.9-3.11."""
@@ -347,7 +368,7 @@ def test_main_graphql_type_alias(tmp_path: Path) -> None:
         "graphql",
     ])
     assert return_code == Exit.OK
-    assert without_class_forward_ref_calls(output_file.read_text(encoding="utf-8")) == without_class_forward_ref_calls(
+    assert module_declarations(output_file.read_text(encoding="utf-8")) == module_declarations(
         (EXPECTED_GRAPHQL_PATH / "type_alias.py").read_text()
     )
 
